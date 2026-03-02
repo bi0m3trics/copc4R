@@ -1,0 +1,40 @@
+Package: copc4R
+Type: Package
+Title: Read COPC Point Clouds from Local Files and HTTP URLs
+Version: 0.1.0
+Authors@R: c(
+    person("Andrew", "Sánchez Meador", role = c("aut", "cre"),
+           email = "andrew.meador@nau.edu"),
+    person("Martin", "Isenburg", role = "cph",
+           comment = "LASzip library"),
+    person("Jean-Romain", "Roussel", role = "cph",
+           comment = "rlas conventions and LASzip R modifications"),
+    person("Andrew", "Bell", role = "cph",
+           comment = "COPC specification (Hobu, Inc.)"),
+    person("Howard", "Butler", role = "cph",
+           comment = "COPC specification (Hobu, Inc.)"),
+    person("Connor", "Manning", role = "cph",
+           comment = "COPC specification (Hobu, Inc.)"))
+Description: Reads Cloud Optimized Point Cloud (COPC, .copc.laz) files
+    from local disk or HTTP endpoints using range reads. Returns point
+    data as data.table with rlas-compatible header conventions. Optionally
+    converts to lidR::LAS objects when lidR is installed. Uses LASzip for
+    LAZ decompression. Supports spatial bounding box and Z-range queries
+    via the COPC octree hierarchy.
+License: MIT + file LICENSE
+URL: https://github.com/bi0m3trics/copc4R
+BugReports: https://github.com/bi0m3trics/copc4R/issues
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+SystemRequirements: C++17; libcurl (optional, for HTTP range-read support)
+Imports:
+    Rcpp (>= 1.0.0),
+    data.table
+LinkingTo: Rcpp
+Suggests:
+    lidR,
+    rlas,
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
+NeedsCompilation: yes

@@ -1,0 +1,39 @@
+# Makevars.win  –  Windows build configuration for copc4R
+#
+# LASzip is bundled under src/third_party/LASzip/src/.
+# libcurl: on Windows we use the curl bundled with Rtools if available.
+
+# C++17 required
+CXX_STD = CXX17
+
+# LASzip bundled source
+LASZIP_SRC = third_party/LASzip/src
+LASZIP_INC = third_party/LASzip/include
+
+# HTTP range-read support: handled via R's curl package (no C-level curl needed).
+PKG_CPPFLAGS = -I$(LASZIP_INC) -I$(LASZIP_INC)/laszip -I$(LASZIP_SRC) -I.
+PKG_LIBS =
+
+# LASzip source files – minimum needed for decompression
+LASZIP_SOURCES = \
+    $(LASZIP_SRC)/arithmeticdecoder.cpp \
+    $(LASZIP_SRC)/arithmeticencoder.cpp \
+    $(LASZIP_SRC)/arithmeticmodel.cpp \
+    $(LASZIP_SRC)/integercompressor.cpp \
+    $(LASZIP_SRC)/lasmessage.cpp \
+    $(LASZIP_SRC)/lasreaditemcompressed_v1.cpp \
+    $(LASZIP_SRC)/lasreaditemcompressed_v2.cpp \
+    $(LASZIP_SRC)/lasreaditemcompressed_v3.cpp \
+    $(LASZIP_SRC)/lasreaditemcompressed_v4.cpp \
+    $(LASZIP_SRC)/lasreadpoint.cpp \
+    $(LASZIP_SRC)/laszip.cpp \
+    $(LASZIP_SRC)/mydefs.cpp
+
+LASZIP_OBJECTS = $(LASZIP_SOURCES:.cpp=.o)
+
+# Package sources
+PKG_SOURCES = range_reader.cpp las14_header.cpp copc_hierarchy.cpp \
+              laszip_decompress.cpp rcpp_exports.cpp RcppExports.cpp RcppExports_gen.cpp
+PKG_OBJECTS = $(PKG_SOURCES:.cpp=.o)
+
+OBJECTS = $(PKG_OBJECTS) $(LASZIP_OBJECTS)

@@ -1,0 +1,35 @@
+# Makevars.in  –  Template processed by configure
+#
+# LASzip is bundled under src/third_party/LASzip/src/.
+
+CXX_STD = CXX17
+
+LASZIP_SRC = third_party/LASzip/src
+LASZIP_INC = third_party/LASzip/include
+
+PKG_CPPFLAGS = -I$(LASZIP_INC) -I$(LASZIP_INC)/laszip -I$(LASZIP_SRC) -I. @CURL_CPPFLAGS@
+PKG_CXXFLAGS = $(SHLIB_OPENMP_CXXFLAGS)
+PKG_LIBS = $(SHLIB_OPENMP_CXXFLAGS) @CURL_LIBS@
+
+# LASzip source files – minimum needed for decompression
+LASZIP_SOURCES = \
+    $(LASZIP_SRC)/arithmeticdecoder.cpp \
+    $(LASZIP_SRC)/arithmeticencoder.cpp \
+    $(LASZIP_SRC)/arithmeticmodel.cpp \
+    $(LASZIP_SRC)/integercompressor.cpp \
+    $(LASZIP_SRC)/lasmessage.cpp \
+    $(LASZIP_SRC)/lasreaditemcompressed_v1.cpp \
+    $(LASZIP_SRC)/lasreaditemcompressed_v2.cpp \
+    $(LASZIP_SRC)/lasreaditemcompressed_v3.cpp \
+    $(LASZIP_SRC)/lasreaditemcompressed_v4.cpp \
+    $(LASZIP_SRC)/lasreadpoint.cpp \
+    $(LASZIP_SRC)/laszip.cpp \
+    $(LASZIP_SRC)/mydefs.cpp
+
+LASZIP_OBJECTS = $(LASZIP_SOURCES:.cpp=.o)
+
+PKG_SOURCES = range_reader.cpp las14_header.cpp copc_hierarchy.cpp \
+              laszip_decompress.cpp rcpp_exports.cpp RcppExports.cpp RcppExports_gen.cpp
+PKG_OBJECTS = $(PKG_SOURCES:.cpp=.o)
+
+OBJECTS = $(PKG_OBJECTS) $(LASZIP_OBJECTS)
