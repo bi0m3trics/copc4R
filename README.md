@@ -1,7 +1,6 @@
-# copc4R <img src="https://github.com/bi0m3trics/copc4R/blob/master/img/copc4r_logo.png" width="150" align="right"/>
+# copc4R <img src="https://github.com/bi0m3trics/copc4R/blob/main/img/copc4R_logo.png" width="150" align="right"/>
 
 ![licence](https://img.shields.io/badge/Licence-MIT-blue.svg)
-[![R build status](https://github.com/bi0m3trics/copc4R/workflows/R-CMD-check/badge.svg)](https://github.com/bi0m3trics/copc4R/actions)
 
 R package to read [Cloud Optimized Point Cloud (COPC)](https://copc.io/) files from local disk or HTTP endpoints using range reads.
 
@@ -20,8 +19,8 @@ remotes::install_github("bi0m3trics/copc4R")
 ```r
 library(copc4R)
 
-# ── Read a local or remote COPC file ──────────────────────────────────────────
-copc_file <- system.file("extdata", "autzen-classified.copc.laz", package = "copc4R")
+# ── Read a remote COPC file ───────────────────────────────────────────────────
+copc_file <- "https://s3.amazonaws.com/hobu-lidar/autzen-classified.copc.laz"
 result    <- read_copc(copc_file)
 
 # result$header is a named list of LAS header fields
