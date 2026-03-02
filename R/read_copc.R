@@ -117,6 +117,18 @@ read_copc_header <- function(path_or_url) {
     # Check URL extension before downloading
     .check_copc_ext_url(path_or_url)
 
+    # If C++ HTTP range-read support is compiled in, pass the URL directly
+    # so the COPC hierarchy can be traversed via range requests (only the
+    # header + relevant octree nodes are fetched, not the whole file).
+    if (cpp_has_http_support()) {
+      if (progress) message("Using HTTP range reads (streaming)")
+      return(path_or_url)
+    }
+
+    # Fallback: C++ does not have curl — download the entire file.
+    if (progress)
+      message("HTTP range-read support not available; downloading full file")
+
     # Return cached tempfile if already downloaded this session
     cached <- .url_cache[[path_or_url]]
     if (!is.null(cached) && file.exists(cached)) {

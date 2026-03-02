@@ -1,7 +1,8 @@
 # Makevars.win  –  Windows build configuration for copc4R
 #
 # LASzip is bundled under src/third_party/LASzip/src/.
-# libcurl: on Windows we use the curl bundled with Rtools if available.
+# libcurl: Rtools42+ (required for C++17) always includes libcurl,
+#          so we enable HTTP range-read support unconditionally.
 
 # C++17 required
 CXX_STD = CXX17
@@ -10,9 +11,12 @@ CXX_STD = CXX17
 LASZIP_SRC = third_party/LASzip/src
 LASZIP_INC = third_party/LASzip/include
 
-# HTTP range-read support: handled via R's curl package (no C-level curl needed).
-PKG_CPPFLAGS = -I$(LASZIP_INC) -I$(LASZIP_INC)/laszip -I$(LASZIP_SRC) -I.
-PKG_LIBS =
+# HTTP range-read support via libcurl (bundled in Rtools)
+CURL_CPPFLAGS = -DCOPC4R_WITH_CURL -DCURL_STATICLIB
+CURL_LIBS = $(shell pkg-config --libs --static libcurl 2>/dev/null || echo "-lcurl")
+
+PKG_CPPFLAGS = -I$(LASZIP_INC) -I$(LASZIP_INC)/laszip -I$(LASZIP_SRC) -I. $(CURL_CPPFLAGS)
+PKG_LIBS = $(CURL_LIBS)
 
 # LASzip source files – minimum needed for decompression
 LASZIP_SOURCES = \

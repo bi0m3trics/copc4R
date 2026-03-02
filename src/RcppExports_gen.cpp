@@ -7,11 +7,13 @@
 #include <Rcpp.h>
 
 // Forward declarations of wrapper functions (defined in RcppExports.cpp)
+RcppExport SEXP _copc4R_cpp_has_http_support();
 RcppExport SEXP _copc4R_cpp_read_copc_header(SEXP);
 RcppExport SEXP _copc4R_cpp_read_copc(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP);
 
 // ── Registration table ────────────────────────────────────────────────
 static const R_CallMethodDef CallEntries[] = {
+    {"_copc4R_cpp_has_http_support", (DL_FUNC) &_copc4R_cpp_has_http_support, 0},
     {"_copc4R_cpp_read_copc_header", (DL_FUNC) &_copc4R_cpp_read_copc_header, 1},
     {"_copc4R_cpp_read_copc",        (DL_FUNC) &_copc4R_cpp_read_copc,        6},
     {NULL, NULL, 0}

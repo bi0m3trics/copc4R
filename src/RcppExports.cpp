@@ -10,6 +10,16 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
+// cpp_has_http_support
+bool cpp_has_http_support();
+RcppExport SEXP _copc4R_cpp_has_http_support() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(cpp_has_http_support());
+    return rcpp_result_gen;
+END_RCPP
+}
 // cpp_read_copc_header
 Rcpp::List cpp_read_copc_header(std::string path_or_url);
 RcppExport SEXP _copc4R_cpp_read_copc_header(SEXP path_or_urlSEXP) {

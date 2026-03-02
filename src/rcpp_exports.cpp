@@ -244,6 +244,15 @@ static ColumnSel parse_select(const std::string& sel, uint8_t pdrf) {
 }
 
 // [[Rcpp::export]]
+bool cpp_has_http_support() {
+#ifdef COPC4R_WITH_CURL
+    return true;
+#else
+    return false;
+#endif
+}
+
+// [[Rcpp::export]]
 Rcpp::List cpp_read_copc_header(std::string path_or_url) {
     auto reader = copc4r::make_reader(path_or_url);
     copc4r::LASHeader h = copc4r::read_las_header(*reader);
@@ -297,7 +306,15 @@ Rcpp::List cpp_read_copc(std::string path_or_url,
         zmin, zmax, has_bbox, has_zrange);
 
     if (progress) {
-        Rcpp::Rcout << "Selected " << nodes.size() << " COPC node(s)\n";
+        uint64_t total_chunk_bytes = 0;
+        uint64_t total_node_points = 0;
+        for (auto& nc : nodes) {
+            total_chunk_bytes += nc.byte_size;
+            total_node_points += nc.point_count;
+        }
+        Rcpp::Rcout << "Selected " << nodes.size() << " COPC node(s)"
+                    << " (" << (total_chunk_bytes / 1024) << " KB compressed"
+                    << ", ~" << total_node_points << " points before point-level filter)\n";
     }
 
     // ── 4. Determine columns ──────────────────────────────────────────
