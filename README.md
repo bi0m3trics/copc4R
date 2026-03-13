@@ -17,27 +17,44 @@ remotes::install_github("bi0m3trics/copc4R")
 ## Quick example
 
 ```r
+library(sf)
 library(copc4R)
 
-# ── Read a remote COPC file ───────────────────────────────────────────────────
-copc_file <- "https://s3.amazonaws.com/hobu-lidar/autzen-classified.copc.laz"
-result    <- read_copc(copc_file)
+# ── Define a point location and buffer to a 100 m circular AOI ───────────────
+sf_use_s2(TRUE)   # st_buffer unit is metres for geographic CRS
 
-# result$header is a named list of LAS header fields
-# result$data   is a data.table of point attributes
-head(result$data)
+aoi <- st_sf(
+  id       = 1,
+  geometry = st_sfc(st_point(c(-111.72671, 35.10700)), crs = 4326)
+)
+aoi <- st_buffer(aoi, dist = 100)
 
-# ── Spatial subset with a bounding box ────────────────────────────────────────
-result <- read_copc(copc_file, bbox = c(637000, 851000, 638000, 852000))
+# ── Stream points from USGS 3DEP via Planetary Computer STAC ─────────────────
+# read_copc() detects the STAC endpoint, discovers intersecting tiles,
+# fetches only the octree nodes overlapping the AOI via HTTP range reads,
+# clips to the circle boundary, and merges results across tile boundaries.
+# The "3dep-lidar-copc" collection is selected automatically for this host.
 
-# ── Inspect header metadata ───────────────────────────────────────────────────
-hdr <- read_copc_header(copc_file)
-cat("LAS Version :", hdr[["Version Major"]], ".", hdr[["Version Minor"]], "\n")
-cat("Point Format:", hdr[["Point Data Format ID"]], "\n")
-cat("Total Points:", format(hdr[["Number of point records"]], big.mark = ","), "\n")
+result <- read_copc(
+  "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+  aoi    = aoi,
+  select = "xyzicrnap",    # X Y Z Intensity Classification ReturnNumber
+                           # NumberOfReturns ScanAngle PointSourceID
+  filter = paste(
+    "-drop_withheld",      # remove withheld flag points
+    "-keep_voxel 1.0",     # 3-D voxel thinning at ~1 m spacing
+    "-keep_first",         # first returns only
+    "-drop_noise"          # drop ASPRS noise classes (7, 18)
+  ),
+  progress = TRUE
+)
 
-# ── Convert to a lidR LAS object (requires lidR) ─────────────────────────────
+# result$data   -- data.table of point attributes
+# result$header -- named list of LAS header fields
+
+# ── Convert to a lidR LAS object and visualise ───────────────────────────────
 las <- as_las(result)
+lidR::plot(las)
 ```
 
 ## Features

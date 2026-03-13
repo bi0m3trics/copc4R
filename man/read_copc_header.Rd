@@ -17,3 +17,13 @@ including a \code{$`COPC Info`} sub-list with octree metadata.
 Reads and parses the LAS 1.4 header, VLRs, EVLRs, and COPC Info VLR
 from a .copc.laz file without reading any point data.
 }
+\examples{
+f <- system.file("extdata", "NoAZCampus_SWFSC_Bldg82_2mVoxel.copc.laz",
+                 package = "copc4R")
+hdr <- read_copc_header(f)
+hdr[["File Signature"]]
+hdr[["Number of point records"]]
+hdr[["Point Data Format ID"]]
+hdr[["COPC Info"]]$spacing
+
+}

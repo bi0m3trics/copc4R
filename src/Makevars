@@ -1,21 +1,31 @@
 # Makevars  –  Unix/macOS build configuration for copc4R
 #
 # LASzip is bundled under src/third_party/LASzip/src/.
-# If libcurl is available (detected by configure), HTTP support is enabled.
+# libcurl is detected automatically via pkg-config / curl-config.
+# No configure script required.
 
-# C++17 required
 CXX_STD = CXX17
 
-# LASzip bundled source location
 LASZIP_SRC = third_party/LASzip/src
 LASZIP_INC = third_party/LASzip/include
 
-# Compiler flags
+# Auto-detect libcurl (pkg-config first, then curl-config fallback)
+CURL_FOUND := $(shell pkg-config --exists libcurl 2>/dev/null && echo yes || \
+                 (command -v curl-config >/dev/null 2>&1 && echo yes || echo no))
+
+ifeq ($(CURL_FOUND),yes)
+CURL_CPPFLAGS := $(shell pkg-config --cflags libcurl 2>/dev/null || curl-config --cflags) -DCOPC4R_WITH_CURL
+CURL_LIBS     := $(shell pkg-config --libs libcurl 2>/dev/null || curl-config --libs)
+else
+CURL_CPPFLAGS :=
+CURL_LIBS     :=
+endif
+
 PKG_CPPFLAGS = -I$(LASZIP_INC) -I$(LASZIP_INC)/laszip -I$(LASZIP_SRC) -I. $(CURL_CPPFLAGS)
 PKG_CXXFLAGS = $(SHLIB_OPENMP_CXXFLAGS)
 PKG_LIBS = $(SHLIB_OPENMP_CXXFLAGS) $(CURL_LIBS)
 
-# LASzip source files – minimum needed for decompression
+# LASzip source files – decompression + compression
 LASZIP_SOURCES = \
     $(LASZIP_SRC)/arithmeticdecoder.cpp \
     $(LASZIP_SRC)/arithmeticencoder.cpp \
@@ -27,14 +37,19 @@ LASZIP_SOURCES = \
     $(LASZIP_SRC)/lasreaditemcompressed_v3.cpp \
     $(LASZIP_SRC)/lasreaditemcompressed_v4.cpp \
     $(LASZIP_SRC)/lasreadpoint.cpp \
+    $(LASZIP_SRC)/laswriteitemcompressed_v1.cpp \
+    $(LASZIP_SRC)/laswriteitemcompressed_v2.cpp \
+    $(LASZIP_SRC)/laswriteitemcompressed_v3.cpp \
+    $(LASZIP_SRC)/laswriteitemcompressed_v4.cpp \
+    $(LASZIP_SRC)/laswritepoint.cpp \
     $(LASZIP_SRC)/laszip.cpp \
     $(LASZIP_SRC)/mydefs.cpp
 
 LASZIP_OBJECTS = $(LASZIP_SOURCES:.cpp=.o)
 
-# Our package sources
 PKG_SOURCES = range_reader.cpp las14_header.cpp copc_hierarchy.cpp \
-              laszip_decompress.cpp rcpp_exports.cpp RcppExports.cpp RcppExports_gen.cpp
+              laszip_decompress.cpp copc_writer.cpp rcpp_exports.cpp \
+              RcppExports.cpp RcppExports_gen.cpp
 PKG_OBJECTS = $(PKG_SOURCES:.cpp=.o)
 
 OBJECTS = $(PKG_OBJECTS) $(LASZIP_OBJECTS)

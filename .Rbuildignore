@@ -4,3 +4,8 @@
 ^\.git$
 ^\.github$
 temp_laszip
+^archives$
+^examples$
+^img$
+^cran-comments\.md$
+inst/extdata/millsite\.copc\.laz$

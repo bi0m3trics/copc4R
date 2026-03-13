@@ -133,6 +133,8 @@ AABB node_bounds(const COPCInfo& info, const VoxelKey& key);
 /// intersects the query bbox (and optional zrange).
 /// Returns ALL matching nodes sorted by level (coarsest first).
 /// If bbox is empty (all zeros), all nodes are selected.
+/// @param max_depth  Maximum octree depth to traverse (-1 = unlimited).
+///   Use lower values for quick previews / LOD sampling.
 std::vector<NodeChunk> select_nodes(
     RangeReader& reader,
     const COPCInfo& info,
@@ -140,7 +142,21 @@ std::vector<NodeChunk> select_nodes(
     double bbox_xmax, double bbox_ymax,
     double zmin, double zmax,
     bool   has_bbox,
-    bool   has_zrange);
+    bool   has_zrange,
+    int    max_depth = -1);
+
+/// Count points in nodes overlapping a bbox without decompressing.
+/// Returns {total_points, num_nodes}.
+struct NodeCount {
+    uint64_t total_points;
+    uint64_t num_nodes;
+};
+NodeCount count_nodes(
+    RangeReader& reader,
+    const COPCInfo& info,
+    double bbox_xmin, double bbox_ymin,
+    double bbox_xmax, double bbox_ymax,
+    bool   has_bbox);
 
 } // namespace copc4r
 #endif

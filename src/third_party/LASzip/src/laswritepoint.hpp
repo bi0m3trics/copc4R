@@ -63,6 +63,11 @@ public:
   BOOL chunk();
   BOOL done();
 
+  // COPC: call after setup() but before init() to suppress the
+  // 8-byte chunk_table_start header and the trailing chunk table.
+  // done() will still flush the layered data (count + sizes + bytes).
+  void disable_chunk_table();
+
 private:
   ByteStreamOut* outstream;
   U32 num_writers;

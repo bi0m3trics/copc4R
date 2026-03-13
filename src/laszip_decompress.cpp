@@ -70,7 +70,8 @@ DecodedPoint decode_combo_point(
     const LASzip& laszip,
     uint8_t  point_format,
     double x_scale, double y_scale, double z_scale,
-    double x_off,   double y_off,   double z_off)
+    double x_off,   double y_off,   double z_off,
+    uint16_t extra_bytes_size = 0)
 {
     DecodedPoint p{};
 
@@ -131,6 +132,23 @@ DecodedPoint decode_combo_point(
         }
     }
 
+    // ── Extra Bytes (BYTE item) ──────────────────────────────────────
+    if (extra_bytes_size > 0 && laszip.num_items >= 2) {
+        // Find the BYTE item – it's the last item (after POINT14 and RGB)
+        U32 eb_offset = 0;
+        for (U16 i = 0; i < laszip.num_items; i++) {
+            if (laszip.items[i].type == LASitem::BYTE14 ||
+                laszip.items[i].type == LASitem::BYTE) {
+                const uint8_t* eb_ptr = combo_buf + eb_offset;
+                uint16_t copy_size = std::min(extra_bytes_size,
+                    static_cast<uint16_t>(laszip.items[i].size));
+                p.extra_bytes.assign(eb_ptr, eb_ptr + copy_size);
+                break;
+            }
+            eb_offset += 2 * laszip.items[i].size;
+        }
+    }
+
     return p;
 }
 
@@ -182,7 +200,8 @@ std::vector<DecodedPoint> decompress_chunk(
             (reader.error() ? reader.error() : "unknown"));
     }
 
-    // COPC: skip the chunk-table mechanism.
+    // COPC nodes store a single LAZ chunk (raw seed + layered data)
+    // without the 8-byte chunk-table header that full LAZ files use.
     reader.prepare_single_chunk();
 
     // ── 4. Prepare item buffers ───────────────────────────────────────
@@ -204,6 +223,13 @@ std::vector<DecodedPoint> decompress_chunk(
     }
 
     // ── 5. Read and decode each point ─────────────────────────────────
+    // Compute extra bytes size from point record length vs standard size
+    uint16_t std_size = 30; // PDRF 6
+    if (point_format == 7) std_size = 36;
+    if (point_format == 8) std_size = 38;
+    uint16_t extra_bytes_size = (point_record_length > std_size)
+        ? (point_record_length - std_size) : 0;
+
     std::vector<DecodedPoint> result;
     result.reserve(point_count);
 
@@ -215,7 +241,8 @@ std::vector<DecodedPoint> decompress_chunk(
         result.push_back(decode_combo_point(
             raw_point.data(), laszip, point_format,
             x_scale, y_scale, z_scale,
-            x_off, y_off, z_off));
+            x_off, y_off, z_off,
+            extra_bytes_size));
     }
 
     reader.done();

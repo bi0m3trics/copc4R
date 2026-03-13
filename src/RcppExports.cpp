@@ -10,6 +10,20 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
+// cpp_write_copc
+void cpp_write_copc(std::string filename, Rcpp::DataFrame data, Rcpp::List header, int max_depth_input, bool progress);
+RcppExport SEXP _copc4R_cpp_write_copc(SEXP filenameSEXP, SEXP dataSEXP, SEXP headerSEXP, SEXP max_depth_inputSEXP, SEXP progressSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< std::string >::type filename(filenameSEXP);
+    Rcpp::traits::input_parameter< Rcpp::DataFrame >::type data(dataSEXP);
+    Rcpp::traits::input_parameter< Rcpp::List >::type header(headerSEXP);
+    Rcpp::traits::input_parameter< int >::type max_depth_input(max_depth_inputSEXP);
+    Rcpp::traits::input_parameter< bool >::type progress(progressSEXP);
+    cpp_write_copc(filename, data, header, max_depth_input, progress);
+    return R_NilValue;
+END_RCPP
+}
 // cpp_has_http_support
 bool cpp_has_http_support();
 RcppExport SEXP _copc4R_cpp_has_http_support() {
@@ -31,9 +45,62 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// cpp_count_nodes
+Rcpp::List cpp_count_nodes(std::string path_or_url, Rcpp::NumericVector bbox);
+RcppExport SEXP _copc4R_cpp_count_nodes(SEXP path_or_urlSEXP, SEXP bboxSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< std::string >::type path_or_url(path_or_urlSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type bbox(bboxSEXP);
+    rcpp_result_gen = Rcpp::wrap(cpp_count_nodes(path_or_url, bbox));
+    return rcpp_result_gen;
+END_RCPP
+}
+// cpp_select_nodes
+Rcpp::List cpp_select_nodes(std::string path_or_url, Rcpp::NumericVector bbox, Rcpp::NumericVector zrange, int max_depth);
+RcppExport SEXP _copc4R_cpp_select_nodes(SEXP path_or_urlSEXP, SEXP bboxSEXP, SEXP zrangeSEXP, SEXP max_depthSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< std::string >::type path_or_url(path_or_urlSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type bbox(bboxSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type zrange(zrangeSEXP);
+    Rcpp::traits::input_parameter< int >::type max_depth(max_depthSEXP);
+    rcpp_result_gen = Rcpp::wrap(cpp_select_nodes(path_or_url, bbox, zrange, max_depth));
+    return rcpp_result_gen;
+END_RCPP
+}
+// cpp_fetch_raw_chunk
+Rcpp::RawVector cpp_fetch_raw_chunk(std::string path_or_url, double offset, double byte_size);
+RcppExport SEXP _copc4R_cpp_fetch_raw_chunk(SEXP path_or_urlSEXP, SEXP offsetSEXP, SEXP byte_sizeSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< std::string >::type path_or_url(path_or_urlSEXP);
+    Rcpp::traits::input_parameter< double >::type offset(offsetSEXP);
+    Rcpp::traits::input_parameter< double >::type byte_size(byte_sizeSEXP);
+    rcpp_result_gen = Rcpp::wrap(cpp_fetch_raw_chunk(path_or_url, offset, byte_size));
+    return rcpp_result_gen;
+END_RCPP
+}
+// cpp_fetch_raw_chunks_parallel
+Rcpp::List cpp_fetch_raw_chunks_parallel(std::string path_or_url, Rcpp::NumericVector offsets, Rcpp::NumericVector sizes, int n_threads);
+RcppExport SEXP _copc4R_cpp_fetch_raw_chunks_parallel(SEXP path_or_urlSEXP, SEXP offsetsSEXP, SEXP sizesSEXP, SEXP n_threadsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< std::string >::type path_or_url(path_or_urlSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type offsets(offsetsSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type sizes(sizesSEXP);
+    Rcpp::traits::input_parameter< int >::type n_threads(n_threadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(cpp_fetch_raw_chunks_parallel(path_or_url, offsets, sizes, n_threads));
+    return rcpp_result_gen;
+END_RCPP
+}
 // cpp_read_copc
-Rcpp::List cpp_read_copc(std::string path_or_url, Rcpp::NumericVector bbox, Rcpp::NumericVector zrange, std::string select, double max_points_dbl, bool progress);
-RcppExport SEXP _copc4R_cpp_read_copc(SEXP path_or_urlSEXP, SEXP bboxSEXP, SEXP zrangeSEXP, SEXP selectSEXP, SEXP max_points_dblSEXP, SEXP progressSEXP) {
+Rcpp::List cpp_read_copc(std::string path_or_url, Rcpp::NumericVector bbox, Rcpp::NumericVector zrange, std::string select, double max_points_dbl, bool progress, int max_depth, std::string filter, int n_threads, Rcpp::Nullable<Rcpp::List> prefetched);
+RcppExport SEXP _copc4R_cpp_read_copc(SEXP path_or_urlSEXP, SEXP bboxSEXP, SEXP zrangeSEXP, SEXP selectSEXP, SEXP max_points_dblSEXP, SEXP progressSEXP, SEXP max_depthSEXP, SEXP filterSEXP, SEXP n_threadsSEXP, SEXP prefetchedSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -43,7 +110,11 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< std::string >::type select(selectSEXP);
     Rcpp::traits::input_parameter< double >::type max_points_dbl(max_points_dblSEXP);
     Rcpp::traits::input_parameter< bool >::type progress(progressSEXP);
-    rcpp_result_gen = Rcpp::wrap(cpp_read_copc(path_or_url, bbox, zrange, select, max_points_dbl, progress));
+    Rcpp::traits::input_parameter< int >::type max_depth(max_depthSEXP);
+    Rcpp::traits::input_parameter< std::string >::type filter(filterSEXP);
+    Rcpp::traits::input_parameter< int >::type n_threads(n_threadsSEXP);
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::List> >::type prefetched(prefetchedSEXP);
+    rcpp_result_gen = Rcpp::wrap(cpp_read_copc(path_or_url, bbox, zrange, select, max_points_dbl, progress, max_depth, filter, n_threads, prefetched));
     return rcpp_result_gen;
 END_RCPP
 }

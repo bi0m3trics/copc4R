@@ -1199,10 +1199,6 @@ laszip_set_point(
     {
       if (point->extra_bytes)
       {
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wformat"
-#endif
         if (laszip_dll->point.num_extra_bytes == point->num_extra_bytes)
         {
           memcpy(laszip_dll->point.extra_bytes, point->extra_bytes, laszip_dll->point.num_extra_bytes);
@@ -1210,13 +1206,10 @@ laszip_set_point(
         else
         {
           snprintf(
-              laszip_dll->error, sizeof(laszip_dll->error), "target point has %ld extra bytes but source point has %ld",
+              laszip_dll->error, sizeof(laszip_dll->error), "target point has %d extra bytes but source point has %d",
               laszip_dll->point.num_extra_bytes, point->num_extra_bytes);
           return 1;
         }
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif
       }
       else if (!laszip_dll->compatibility_mode)
       {
@@ -2034,13 +2027,9 @@ laszip_prepare_header_for_write(
 
     if (laszip_dll->header.number_of_point_records != laszip_dll->header.extended_number_of_point_records)
     {
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wformat"
-#endif
       if (laszip_dll->header.number_of_point_records != 0)
       {
-        snprintf(laszip_dll->error, sizeof(laszip_dll->error), "inconsistent number_of_point_records %lu and extended_number_of_point_records %llu", laszip_dll->header.number_of_point_records, laszip_dll->header.extended_number_of_point_records);
+        snprintf(laszip_dll->error, sizeof(laszip_dll->error), "inconsistent number_of_point_records %u and extended_number_of_point_records %llu", (unsigned)laszip_dll->header.number_of_point_records, (unsigned long long)laszip_dll->header.extended_number_of_point_records);
         return 1;
       }     
       else if (laszip_dll->header.extended_number_of_point_records <= U32_MAX)
@@ -2054,16 +2043,13 @@ laszip_prepare_header_for_write(
       {
         if (laszip_dll->header.number_of_points_by_return[i] != 0)
         {
-          snprintf(laszip_dll->error, sizeof(laszip_dll->error), "inconsistent number_of_points_by_return[%u] %lu and extended_number_of_points_by_return[%u] %llu", i, laszip_dll->header.number_of_points_by_return[i], i, laszip_dll->header.extended_number_of_points_by_return[i]);
+          snprintf(laszip_dll->error, sizeof(laszip_dll->error), "inconsistent number_of_points_by_return[%u] %u and extended_number_of_points_by_return[%u] %llu", i, (unsigned)laszip_dll->header.number_of_points_by_return[i], i, (unsigned long long)laszip_dll->header.extended_number_of_points_by_return[i]);
           return 1;
         }   
         else if (laszip_dll->header.extended_number_of_points_by_return[i] <= U32_MAX)
         {
           laszip_dll->header.number_of_points_by_return[i] = (U32)laszip_dll->header.extended_number_of_points_by_return[i];
         }
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif
       }
     }
   }
@@ -2100,18 +2086,11 @@ laszip_prepare_point_for_write(
       laszip_dll->request_native_extension = FALSE;
 
       // make sure there are no more than U32_MAX points
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wformat"
-#endif
       if (laszip_dll->header.extended_number_of_point_records > U32_MAX)
       {
-        snprintf(laszip_dll->error, sizeof(laszip_dll->error), "extended_number_of_point_records of %llu is too much for 32-bit counters of compatibility mode", laszip_dll->header.extended_number_of_point_records);
+        snprintf(laszip_dll->error, sizeof(laszip_dll->error), "extended_number_of_point_records of %llu is too much for 32-bit counters of compatibility mode", (unsigned long long)laszip_dll->header.extended_number_of_point_records);
         return 1;
       }
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif
       // copy 64-bit extended counters back into 32-bit legacy counters
 
       laszip_dll->header.number_of_point_records = (U32)(laszip_dll->header.extended_number_of_point_records);
@@ -2791,10 +2770,6 @@ laszip_write_header(
   // special handling for LAS 1.3
   if ((laszip_dll->header.version_major == 1) && (laszip_dll->header.version_minor >= 3))
   {
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wformat"
-#endif
     if (laszip_dll->header.header_size < 235)
     {
       snprintf(laszip_dll->error, sizeof(laszip_dll->error), "for LAS 1.%d header_size should at least be 235 but it is only %d", laszip_dll->header.version_minor, laszip_dll->header.header_size);
@@ -2804,12 +2779,9 @@ laszip_write_header(
     {
       if (laszip_dll->header.start_of_waveform_data_packet_record != 0)
       {
-        snprintf(laszip_dll->warning, sizeof(laszip_dll->warning), "header.start_of_waveform_data_packet_record is %llu. writing 0 instead.", laszip_dll->header.start_of_waveform_data_packet_record);
+        snprintf(laszip_dll->warning, sizeof(laszip_dll->warning), "header.start_of_waveform_data_packet_record is %llu. writing 0 instead.", (unsigned long long)laszip_dll->header.start_of_waveform_data_packet_record);
         laszip_dll->header.start_of_waveform_data_packet_record = 0;
       }
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif
       try { laszip_dll->streamout->put64bitsLE((const U8*)&(laszip_dll->header.start_of_waveform_data_packet_record)); } catch(...)
       {
         snprintf(laszip_dll->error, sizeof(laszip_dll->error), "writing header.start_of_waveform_data_packet_record");
@@ -4846,19 +4818,12 @@ laszip_seek_point(
 
   try
   {
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wformat"
-#endif
     // seek to the point
     if (!laszip_dll->reader->seek((U32)laszip_dll->p_count, (U32)index))
     {
-      snprintf(laszip_dll->error, sizeof(laszip_dll->error), "seeking from index %lld to index %lld for file with %lld points", laszip_dll->p_count, index, laszip_dll->npoints);
+      snprintf(laszip_dll->error, sizeof(laszip_dll->error), "seeking from index %lld to index %lld for file with %lld points", (long long)laszip_dll->p_count, (long long)index, (long long)laszip_dll->npoints);
       return 1;
     }
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif
     laszip_dll->p_count = index;
   }
   catch (...)

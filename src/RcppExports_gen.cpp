@@ -9,13 +9,23 @@
 // Forward declarations of wrapper functions (defined in RcppExports.cpp)
 RcppExport SEXP _copc4R_cpp_has_http_support();
 RcppExport SEXP _copc4R_cpp_read_copc_header(SEXP);
-RcppExport SEXP _copc4R_cpp_read_copc(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP);
+RcppExport SEXP _copc4R_cpp_count_nodes(SEXP, SEXP);
+RcppExport SEXP _copc4R_cpp_select_nodes(SEXP, SEXP, SEXP, SEXP);
+RcppExport SEXP _copc4R_cpp_fetch_raw_chunk(SEXP, SEXP, SEXP);
+RcppExport SEXP _copc4R_cpp_fetch_raw_chunks_parallel(SEXP, SEXP, SEXP, SEXP);
+RcppExport SEXP _copc4R_cpp_read_copc(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP, SEXP, SEXP, SEXP, SEXP);
+RcppExport SEXP _copc4R_cpp_write_copc(SEXP, SEXP, SEXP, SEXP, SEXP);
 
 // ── Registration table ────────────────────────────────────────────────
 static const R_CallMethodDef CallEntries[] = {
-    {"_copc4R_cpp_has_http_support", (DL_FUNC) &_copc4R_cpp_has_http_support, 0},
-    {"_copc4R_cpp_read_copc_header", (DL_FUNC) &_copc4R_cpp_read_copc_header, 1},
-    {"_copc4R_cpp_read_copc",        (DL_FUNC) &_copc4R_cpp_read_copc,        6},
+    {"_copc4R_cpp_has_http_support",          (DL_FUNC) &_copc4R_cpp_has_http_support,          0},
+    {"_copc4R_cpp_read_copc_header",          (DL_FUNC) &_copc4R_cpp_read_copc_header,          1},
+    {"_copc4R_cpp_count_nodes",               (DL_FUNC) &_copc4R_cpp_count_nodes,               2},
+    {"_copc4R_cpp_select_nodes",              (DL_FUNC) &_copc4R_cpp_select_nodes,              4},
+    {"_copc4R_cpp_fetch_raw_chunk",           (DL_FUNC) &_copc4R_cpp_fetch_raw_chunk,           3},
+    {"_copc4R_cpp_fetch_raw_chunks_parallel", (DL_FUNC) &_copc4R_cpp_fetch_raw_chunks_parallel, 4},
+    {"_copc4R_cpp_read_copc",                 (DL_FUNC) &_copc4R_cpp_read_copc,                10},
+    {"_copc4R_cpp_write_copc",                (DL_FUNC) &_copc4R_cpp_write_copc,                5},
     {NULL, NULL, 0}
 };
 

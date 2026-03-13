@@ -15,6 +15,10 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <sstream>
+#include <future>
+#include <thread>
 
 using namespace Rcpp;
 
@@ -259,13 +263,388 @@ Rcpp::List cpp_read_copc_header(std::string path_or_url) {
     return header_to_rlas_list(h);
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Count nodes overlapping a bbox (for density estimation)
+// ═══════════════════════════════════════════════════════════════════════
+// [[Rcpp::export]]
+Rcpp::List cpp_count_nodes(std::string path_or_url,
+                           Rcpp::NumericVector bbox) {
+    auto reader = copc4r::make_reader(path_or_url);
+    copc4r::LASHeader header = copc4r::read_las_header(*reader);
+    copc4r::COPCInfo info = copc4r::parse_copc_info(header);
+
+    bool has_bbox = (bbox.size() >= 4);
+    double bxmin = 0, bymin = 0, bxmax = 0, bymax = 0;
+    if (has_bbox) {
+        bxmin = bbox[0]; bymin = bbox[1];
+        bxmax = bbox[2]; bymax = bbox[3];
+    }
+
+    auto nc = copc4r::count_nodes(*reader, info,
+                                   bxmin, bymin, bxmax, bymax, has_bbox);
+
+    return Rcpp::List::create(
+        Rcpp::Named("total_points") = static_cast<double>(nc.total_points),
+        Rcpp::Named("num_nodes")    = static_cast<double>(nc.num_nodes)
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Select hierarchy nodes (expose to R for cache orchestration)
+// ═══════════════════════════════════════════════════════════════════════
+// [[Rcpp::export]]
+Rcpp::List cpp_select_nodes(std::string path_or_url,
+                            Rcpp::NumericVector bbox,
+                            Rcpp::NumericVector zrange,
+                            int max_depth = -1) {
+    auto reader = copc4r::make_reader(path_or_url);
+    copc4r::LASHeader header = copc4r::read_las_header(*reader);
+    copc4r::COPCInfo info = copc4r::parse_copc_info(header);
+
+    bool has_bbox = (bbox.size() >= 4);
+    double bxmin = 0, bymin = 0, bxmax = 0, bymax = 0;
+    if (has_bbox) {
+        bxmin = bbox[0]; bymin = bbox[1];
+        bxmax = bbox[2]; bymax = bbox[3];
+    }
+    bool has_zrange = (zrange.size() >= 2);
+    double zmin = 0, zmax = 0;
+    if (has_zrange) {
+        zmin = zrange[0]; zmax = zrange[1];
+    }
+
+    auto nodes = copc4r::select_nodes(
+        *reader, info,
+        bxmin, bymin, bxmax, bymax,
+        zmin, zmax, has_bbox, has_zrange, max_depth);
+
+    size_t n = nodes.size();
+    Rcpp::NumericVector offsets(n), sizes(n), point_counts(n);
+    Rcpp::IntegerVector levels(n);
+    for (size_t i = 0; i < n; i++) {
+        offsets[i]      = static_cast<double>(nodes[i].offset);
+        sizes[i]        = static_cast<double>(nodes[i].byte_size);
+        point_counts[i] = static_cast<double>(nodes[i].point_count);
+        levels[i]       = nodes[i].key.level;
+    }
+    return Rcpp::List::create(
+        Rcpp::Named("offset")      = offsets,
+        Rcpp::Named("byte_size")   = sizes,
+        Rcpp::Named("point_count") = point_counts,
+        Rcpp::Named("level")       = levels
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Fetch a single raw chunk (for R-level cache orchestration)
+// ═══════════════════════════════════════════════════════════════════════
+// [[Rcpp::export]]
+Rcpp::RawVector cpp_fetch_raw_chunk(std::string path_or_url,
+                                    double offset,
+                                    double byte_size) {
+    auto reader = copc4r::make_reader(path_or_url);
+    auto data = reader->read(static_cast<uint64_t>(offset),
+                             static_cast<uint64_t>(byte_size));
+    Rcpp::RawVector out(data.size());
+    if (!data.empty())
+        std::memcpy(out.begin(), data.data(), data.size());
+    return out;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Parallel fetch of multiple raw chunks (for R-level cache orchestration)
+// Creates n_threads persistent HTTP connections and batches the work.
+// ═══════════════════════════════════════════════════════════════════════
+// [[Rcpp::export]]
+Rcpp::List cpp_fetch_raw_chunks_parallel(std::string path_or_url,
+                                         Rcpp::NumericVector offsets,
+                                         Rcpp::NumericVector sizes,
+                                         int n_threads = 4) {
+    size_t n = offsets.size();
+    if (n == 0) return Rcpp::List(0);
+
+    int actual_threads = std::min(n_threads, static_cast<int>(n));
+    if (actual_threads < 1) actual_threads = 1;
+
+    // Create persistent worker readers (one per thread for connection reuse)
+    std::vector<std::unique_ptr<copc4r::RangeReader>> workers(actual_threads);
+    for (int t = 0; t < actual_threads; t++) {
+        workers[t] = copc4r::make_reader(path_or_url);
+    }
+
+    Rcpp::List result(n);
+
+    for (size_t batch_start = 0; batch_start < n;
+         batch_start += static_cast<size_t>(actual_threads)) {
+        size_t batch_end = std::min(batch_start + static_cast<size_t>(actual_threads), n);
+        std::vector<std::future<std::vector<uint8_t>>> futures;
+
+        for (size_t i = batch_start; i < batch_end; i++) {
+            size_t tid = i - batch_start;
+            auto* rd = workers[tid].get();
+            uint64_t off = static_cast<uint64_t>(offsets[i]);
+            uint64_t sz  = static_cast<uint64_t>(sizes[i]);
+            futures.push_back(std::async(std::launch::async,
+                [rd, off, sz]() -> std::vector<uint8_t> {
+                    return rd->read(off, sz);
+                }
+            ));
+        }
+
+        for (size_t i = 0; i < futures.size(); i++) {
+            auto data = futures[i].get();
+            Rcpp::RawVector rv(data.size());
+            if (!data.empty())
+                std::memcpy(rv.begin(), data.data(), data.size());
+            result[batch_start + i] = rv;
+        }
+
+        Rcpp::checkUserInterrupt();
+    }
+
+    return result;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Attribute filter: parse a lidR-style filter string and apply
+// post-decompression.  Supported predicates:
+//   -keep_class <c1> <c2> ...       keep only these classifications
+//   -drop_class <c1> <c2> ...       drop these classifications
+//   -keep_first                     ReturnNumber == 1
+//   -keep_last                      ReturnNumber == NumberOfReturns
+//   -keep_single                    NumberOfReturns == 1
+//   -drop_withheld                  drop Withheld flag
+//   -drop_overlap                   drop Overlap flag
+//   -keep_intensity_above <val>     Intensity >= val
+//   -keep_intensity_below <val>     Intensity <= val
+// ═══════════════════════════════════════════════════════════════════════
+struct PointFilter {
+    bool active = false;
+    std::vector<int> keep_class;
+    std::vector<int> drop_class;
+    bool keep_first = false;
+    bool keep_last = false;
+    bool keep_single = false;
+    bool drop_withheld = false;
+    bool drop_overlap = false;
+    int  intensity_above = -1; // -1 = not set
+    int  intensity_below = -1;
+    // ── Additional predicates (v0.3) ─────────────────────────────
+    std::vector<int> keep_return;    // specific return numbers
+    std::vector<int> drop_return;
+    double z_above  = -std::numeric_limits<double>::infinity();  // keep Z >= val
+    double z_below  =  std::numeric_limits<double>::infinity();  // keep Z <= val
+    double scan_angle_above = -std::numeric_limits<double>::infinity();
+    double scan_angle_below =  std::numeric_limits<double>::infinity();
+    bool   drop_noise  = false;    // drop classification 7 (low) & 18 (high)
+    bool   keep_ground = false;    // keep only classification 2
+    double keep_random_fraction = 1.0;    // thin: keep fraction (0,1]
+    int    keep_every_nth = 0;     // keep every Nth point (0 = disabled)
+    // Internal counter for keep_every_nth
+    mutable uint64_t _nth_counter = 0;
+    bool has_z_above() const { return z_above != -std::numeric_limits<double>::infinity(); }
+    bool has_z_below() const { return z_below !=  std::numeric_limits<double>::infinity(); }
+    bool has_sa_above() const { return scan_angle_above != -std::numeric_limits<double>::infinity(); }
+    bool has_sa_below() const { return scan_angle_below !=  std::numeric_limits<double>::infinity(); }
+};
+
+// Helper: read consecutive integers from stream until next flag or EOF
+static void read_ints(std::istringstream& iss, std::vector<int>& out) {
+    std::string token;
+    while (iss.peek() != '-' && !iss.eof() && iss >> token) {
+        try { out.push_back(std::stoi(token)); }
+        catch (...) { break; }
+        // Peek past whitespace
+        while (iss.peek() == ' ' || iss.peek() == '\t') iss.get();
+        if (iss.peek() == '-') break;
+    }
+}
+
+static PointFilter parse_filter(const std::string& fstr) {
+    PointFilter f;
+    if (fstr.empty()) return f;
+    f.active = true;
+
+    std::istringstream iss(fstr);
+    std::string token;
+    while (iss >> token) {
+        if (token == "-keep_class") {
+            read_ints(iss, f.keep_class);
+        } else if (token == "-drop_class") {
+            read_ints(iss, f.drop_class);
+        } else if (token == "-keep_first") {
+            f.keep_first = true;
+        } else if (token == "-keep_last") {
+            f.keep_last = true;
+        } else if (token == "-keep_single") {
+            f.keep_single = true;
+        } else if (token == "-drop_withheld") {
+            f.drop_withheld = true;
+        } else if (token == "-drop_overlap") {
+            f.drop_overlap = true;
+        } else if (token == "-keep_intensity_above") {
+            if (iss >> token) {
+                try { f.intensity_above = std::stoi(token); }
+                catch (...) {}
+            }
+        } else if (token == "-keep_intensity_below") {
+            if (iss >> token) {
+                try { f.intensity_below = std::stoi(token); }
+                catch (...) {}
+            }
+        } else if (token == "-keep_return") {
+            read_ints(iss, f.keep_return);
+        } else if (token == "-drop_return") {
+            read_ints(iss, f.drop_return);
+        } else if (token == "-keep_z_above") {
+            if (iss >> token) {
+                try { f.z_above = std::stod(token); }
+                catch (...) {}
+            }
+        } else if (token == "-keep_z_below") {
+            if (iss >> token) {
+                try { f.z_below = std::stod(token); }
+                catch (...) {}
+            }
+        } else if (token == "-keep_scan_angle_above") {
+            if (iss >> token) {
+                try { f.scan_angle_above = std::stod(token); }
+                catch (...) {}
+            }
+        } else if (token == "-keep_scan_angle_below") {
+            if (iss >> token) {
+                try { f.scan_angle_below = std::stod(token); }
+                catch (...) {}
+            }
+        } else if (token == "-drop_noise") {
+            f.drop_noise = true;
+        } else if (token == "-keep_ground") {
+            f.keep_ground = true;
+        } else if (token == "-keep_random_fraction") {
+            if (iss >> token) {
+                try { f.keep_random_fraction = std::stod(token); }
+                catch (...) {}
+            }
+        } else if (token == "-keep_every_nth") {
+            if (iss >> token) {
+                try { f.keep_every_nth = std::stoi(token); }
+                catch (...) {}
+            }
+        }
+    }
+    return f;
+}
+
+static bool passes_filter(const copc4r::DecodedPoint& pt,
+                           const PointFilter& f) {
+    if (!f.active) return true;
+
+    // ── Classification filters ────────────────────────────────────
+    if (!f.keep_class.empty()) {
+        bool found = false;
+        for (int c : f.keep_class) {
+            if (pt.classification == c) { found = true; break; }
+        }
+        if (!found) return false;
+    }
+    if (!f.drop_class.empty()) {
+        for (int c : f.drop_class) {
+            if (pt.classification == c) return false;
+        }
+    }
+    if (f.keep_ground && pt.classification != 2) return false;
+    if (f.drop_noise && (pt.classification == 7 || pt.classification == 18))
+        return false;
+
+    // ── Return number filters ─────────────────────────────────────
+    if (f.keep_first && pt.return_number != 1) return false;
+    if (f.keep_last && pt.return_number != pt.number_of_returns) return false;
+    if (f.keep_single && pt.number_of_returns != 1) return false;
+    if (!f.keep_return.empty()) {
+        bool found = false;
+        for (int r : f.keep_return) {
+            if (pt.return_number == r) { found = true; break; }
+        }
+        if (!found) return false;
+    }
+    if (!f.drop_return.empty()) {
+        for (int r : f.drop_return) {
+            if (pt.return_number == r) return false;
+        }
+    }
+
+    // ── Flag filters ──────────────────────────────────────────────
+    if (f.drop_withheld && ((pt.classification_flags >> 2) & 1)) return false;
+    if (f.drop_overlap && ((pt.classification_flags >> 3) & 1)) return false;
+
+    // ── Intensity filters ─────────────────────────────────────────
+    if (f.intensity_above >= 0 && pt.intensity < static_cast<uint16_t>(f.intensity_above))
+        return false;
+    if (f.intensity_below >= 0 && pt.intensity > static_cast<uint16_t>(f.intensity_below))
+        return false;
+
+    // ── Z-range filters ───────────────────────────────────────────
+    if (f.has_z_above() && pt.Z < f.z_above) return false;
+    if (f.has_z_below() && pt.Z > f.z_below) return false;
+
+    // ── Scan-angle filters (degrees: raw * 0.006) ─────────────────
+    if (f.has_sa_above() || f.has_sa_below()) {
+        double sa_deg = pt.scan_angle * 0.006;
+        if (f.has_sa_above() && sa_deg < f.scan_angle_above) return false;
+        if (f.has_sa_below() && sa_deg > f.scan_angle_below) return false;
+    }
+
+    // ── Decimation: keep every Nth point ──────────────────────────
+    if (f.keep_every_nth > 0) {
+        f._nth_counter++;
+        if ((f._nth_counter % f.keep_every_nth) != 1) return false;
+    }
+
+    // ── Random fraction thinning ──────────────────────────────────
+    if (f.keep_random_fraction < 1.0) {
+        double u = R::runif(0.0, 1.0);
+        if (u > f.keep_random_fraction) return false;
+    }
+
+    return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Helper: decode extra bytes for a single point into doubles
+// ═══════════════════════════════════════════════════════════════════════
+static double decode_extra_byte_value(const uint8_t* data,
+                                       const copc4r::ExtraBytesRecord& eb) {
+    double raw = 0.0;
+    switch (eb.data_type) {
+        case 1:  raw = static_cast<double>(*data); break;
+        case 2:  raw = static_cast<double>(*reinterpret_cast<const int8_t*>(data)); break;
+        case 3:  { uint16_t v; std::memcpy(&v, data, 2); raw = static_cast<double>(v); } break;
+        case 4:  { int16_t v;  std::memcpy(&v, data, 2); raw = static_cast<double>(v); } break;
+        case 5:  { uint32_t v; std::memcpy(&v, data, 4); raw = static_cast<double>(v); } break;
+        case 6:  { int32_t v;  std::memcpy(&v, data, 4); raw = static_cast<double>(v); } break;
+        case 7:  { uint64_t v; std::memcpy(&v, data, 8); raw = static_cast<double>(v); } break;
+        case 8:  { int64_t v;  std::memcpy(&v, data, 8); raw = static_cast<double>(v); } break;
+        case 9:  { float v;    std::memcpy(&v, data, 4); raw = static_cast<double>(v); } break;
+        case 10: { double v;   std::memcpy(&v, data, 8); raw = v; } break;
+        default: return 0.0;
+    }
+    // Apply scale and offset
+    if (eb.has_scale) raw *= eb.scale;
+    if (eb.has_offset) raw += eb.offset;
+    return raw;
+}
+
 // [[Rcpp::export]]
 Rcpp::List cpp_read_copc(std::string path_or_url,
                          Rcpp::NumericVector bbox,
                          Rcpp::NumericVector zrange,
                          std::string select,
                          double max_points_dbl,
-                         bool progress) {
+                         bool progress,
+                         int max_depth = -1,
+                         std::string filter = "",
+                         int n_threads = 4,
+                         Rcpp::Nullable<Rcpp::List> prefetched = R_NilValue) {
     // ── 1. Open reader and parse header + COPC info ───────────────────
     auto reader = copc4r::make_reader(path_or_url);
     copc4r::LASHeader header = copc4r::read_las_header(*reader);
@@ -281,6 +660,13 @@ Rcpp::List cpp_read_copc(std::string path_or_url,
     if (!lz_vlr)
         Rcpp::stop("No LASzip VLR found – file may not be LAZ-compressed");
     const std::vector<uint8_t>& laszip_vlr_data = lz_vlr->data;
+
+    // ── 1c. Parse Extra Bytes VLR ─────────────────────────────────────
+    auto extra_bytes_defs = copc4r::parse_extra_bytes_vlr(header);
+    bool has_extra_bytes = !extra_bytes_defs.empty();
+
+    // ── 1d. Parse point filter ────────────────────────────────────────
+    PointFilter pf = parse_filter(filter);
 
     // ── 2. Parse query parameters ─────────────────────────────────────
     bool has_bbox = (bbox.size() >= 4);
@@ -303,7 +689,8 @@ Rcpp::List cpp_read_copc(std::string path_or_url,
     auto nodes = copc4r::select_nodes(
         *reader, info,
         bxmin, bymin, bxmax, bymax,
-        zmin, zmax, has_bbox, has_zrange);
+        zmin, zmax, has_bbox, has_zrange,
+        max_depth);
 
     if (progress) {
         uint64_t total_chunk_bytes = 0;
@@ -333,6 +720,9 @@ Rcpp::List cpp_read_copc(std::string path_or_url,
     Rcpp::IntegerVector  vScanDirFlag, vEdgeOfFlight, vClassFlags, vScannerChannel;
     Rcpp::IntegerVector  vR, vG, vB, vNIR;
 
+    // Extra Bytes columns (one NumericVector per dimension)
+    std::vector<Rcpp::NumericVector> vExtraCols(extra_bytes_defs.size());
+
     auto reserve = [&](uint64_t n) {
         if (sel.XYZ)               { vX = Rcpp::NumericVector(n); vY = Rcpp::NumericVector(n); vZ = Rcpp::NumericVector(n); }
         if (sel.intensity)         vIntensity = Rcpp::IntegerVector(n);
@@ -351,9 +741,90 @@ Rcpp::List cpp_read_copc(std::string path_or_url,
         }
         if (sel.rgb)    { vR = Rcpp::IntegerVector(n); vG = Rcpp::IntegerVector(n); vB = Rcpp::IntegerVector(n); }
         if (sel.nir)    vNIR = Rcpp::IntegerVector(n);
+        for (size_t e = 0; e < extra_bytes_defs.size(); e++) {
+            vExtraCols[e] = Rcpp::NumericVector(n);
+        }
     };
     reserve(total_pts);
 
+    // ── 5a. Fetch compressed chunks ────────────────────────────────────
+    //     Supports three modes:
+    //     (1) prefetched: R-level cache provided raw bytes
+    //     (2) parallel:   multi-threaded HTTP fetch via std::async
+    //     (3) sequential: default single-reader path
+    std::vector<std::vector<uint8_t>> compressed_chunks(nodes.size());
+
+    bool use_prefetched = prefetched.isNotNull();
+    if (use_prefetched) {
+        Rcpp::List pf_list(prefetched.get());
+        if (static_cast<size_t>(pf_list.size()) != nodes.size()) {
+            Rcpp::warning("prefetched chunk count mismatch; falling back to fetch");
+            use_prefetched = false;
+        } else {
+            for (size_t i = 0; i < nodes.size(); i++) {
+                Rcpp::RawVector rv = pf_list[i];
+                compressed_chunks[i].assign(rv.begin(), rv.end());
+            }
+        }
+    }
+
+    if (!use_prefetched) {
+        bool is_http = (path_or_url.find("http://") == 0 ||
+                        path_or_url.find("https://") == 0);
+
+        if (n_threads > 1 && is_http && nodes.size() > 1) {
+            // ── Parallel HTTP fetch ───────────────────────────────────
+            int actual_threads = std::min(n_threads,
+                                          static_cast<int>(nodes.size()));
+
+            // Persistent readers (one per thread for connection reuse)
+            std::vector<std::unique_ptr<copc4r::RangeReader>> workers(
+                actual_threads);
+            for (int t = 0; t < actual_threads; t++) {
+                workers[t] = copc4r::make_reader(path_or_url);
+            }
+
+            if (progress) {
+                Rcpp::Rcout << "Parallel fetch: " << nodes.size()
+                            << " chunks, " << actual_threads
+                            << " threads\n";
+            }
+
+            for (size_t batch_start = 0; batch_start < nodes.size();
+                 batch_start += static_cast<size_t>(actual_threads)) {
+                size_t batch_end = std::min(
+                    batch_start + static_cast<size_t>(actual_threads),
+                    nodes.size());
+                std::vector<std::future<std::vector<uint8_t>>> futures;
+
+                for (size_t i = batch_start; i < batch_end; i++) {
+                    size_t tid = i - batch_start;
+                    auto* rd = workers[tid].get();
+                    auto off = nodes[i].offset;
+                    auto sz  = nodes[i].byte_size;
+                    futures.push_back(std::async(std::launch::async,
+                        [rd, off, sz]() -> std::vector<uint8_t> {
+                            return rd->read(off, sz);
+                        }
+                    ));
+                }
+
+                for (size_t i = 0; i < futures.size(); i++) {
+                    compressed_chunks[batch_start + i] = futures[i].get();
+                }
+
+                Rcpp::checkUserInterrupt();
+            }
+        } else {
+            // ── Sequential fetch ──────────────────────────────────────
+            for (size_t i = 0; i < nodes.size(); i++) {
+                compressed_chunks[i] = reader->read(
+                    nodes[i].offset, nodes[i].byte_size);
+            }
+        }
+    }
+
+    // ── 5b. Decompress and filter ─────────────────────────────────────
     uint64_t idx = 0;
     for (size_t ni = 0; ni < nodes.size(); ++ni) {
         auto& nc = nodes[ni];
@@ -362,14 +833,11 @@ Rcpp::List cpp_read_copc(std::string path_or_url,
             Rcpp::Rcout << "  Decompressing chunk " << ni << "/" << nodes.size() << "\n";
         }
 
-        // Read compressed chunk from file/URL
-        auto compressed = reader->read(nc.offset, nc.byte_size);
-
-        // Decompress
+        // Decompress (from pre-fetched buffer)
         std::vector<copc4r::DecodedPoint> pts;
         try {
             pts = copc4r::decompress_chunk(
-                compressed, laszip_vlr_data, pdrf, prl, nc.point_count,
+                compressed_chunks[ni], laszip_vlr_data, pdrf, prl, nc.point_count,
                 header.pub.x_scale, header.pub.y_scale, header.pub.z_scale,
                 header.pub.x_offset, header.pub.y_offset, header.pub.z_offset);
         } catch (std::exception& e) {
@@ -391,6 +859,10 @@ Rcpp::List cpp_read_copc(std::string path_or_url,
                     continue;
             }
 
+            // Attribute filter
+            if (!passes_filter(pt, pf))
+                continue;
+
             if (sel.XYZ) { vX[idx] = pt.X; vY[idx] = pt.Y; vZ[idx] = pt.Z; }
             if (sel.intensity)         vIntensity[idx] = pt.intensity;
             if (sel.gpstime)           vGpstime[idx]   = pt.gpstime;
@@ -408,6 +880,17 @@ Rcpp::List cpp_read_copc(std::string path_or_url,
             }
             if (sel.rgb) { vR[idx] = pt.red; vG[idx] = pt.green; vB[idx] = pt.blue; }
             if (sel.nir)  vNIR[idx] = pt.nir;
+
+            // Extra Bytes columns
+            if (has_extra_bytes && !pt.extra_bytes.empty()) {
+                for (size_t e = 0; e < extra_bytes_defs.size(); e++) {
+                    auto& eb = extra_bytes_defs[e];
+                    if (eb.byte_offset + eb.byte_size <= pt.extra_bytes.size()) {
+                        vExtraCols[e][idx] = decode_extra_byte_value(
+                            pt.extra_bytes.data() + eb.byte_offset, eb);
+                    }
+                }
+            }
 
             idx++;
         }
@@ -462,6 +945,13 @@ Rcpp::List cpp_read_copc(std::string path_or_url,
     }
     if (sel.nir) {
         dt_cols["NIR"] = Rcpp::IntegerVector(vNIR.begin(), vNIR.begin() + idx);
+    }
+
+    // Extra Bytes columns
+    for (size_t e = 0; e < extra_bytes_defs.size(); e++) {
+        dt_cols[extra_bytes_defs[e].name] =
+            Rcpp::NumericVector(vExtraCols[e].begin(),
+                                vExtraCols[e].begin() + idx);
     }
 
     // ── 6. Build return list ──────────────────────────────────────────

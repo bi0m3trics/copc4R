@@ -26,3 +26,15 @@ The header list must contain at minimum the rlas-standard fields
 (Version Major/Minor, Point Data Format ID, scale factors, offsets,
 extents).  \code{read_copc()} already produces a compatible header.
 }
+\examples{
+\donttest{
+if (requireNamespace("lidR", quietly = TRUE)) {
+  f <- system.file("extdata", "NoAZCampus_SWFSC_Bldg82_2mVoxel.copc.laz",
+                   package = "copc4R")
+  result <- read_copc(f, max_depth = 2L, progress = FALSE)
+  las <- as_las(result)
+  print(las)
+}
+}
+
+}

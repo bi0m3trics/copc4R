@@ -259,7 +259,7 @@ BOOL LASwritePoint::init(ByteStreamOut* outstream)
   if (!outstream) return FALSE;
   this->outstream = outstream;
 
-  // if chunking is enabled
+  // if chunking is enabled (and not suppressed by disable_chunk_table)
   if (number_chunks == U32_MAX)
   {
     number_chunks = 0;
@@ -387,6 +387,15 @@ BOOL LASwritePoint::chunk()
   init(outstream);
   chunk_count = 0;
   return TRUE;
+}
+
+void LASwritePoint::disable_chunk_table()
+{
+  // After setup() sets number_chunks = U32_MAX, reset it so that
+  // init() skips writing the 8-byte header and done() skips the
+  // chunk table.  The layered data (count + sizes + bytes) is still
+  // written by done().  chunk_start_position stays 0 from ctor.
+  number_chunks = 0;
 }
 
 BOOL LASwritePoint::done()

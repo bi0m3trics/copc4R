@@ -33,6 +33,8 @@
 #include "lasmessage.hpp"
 #include "laszip_common.h"
 
+#include <Rcpp.h>  // for Rcpp::stop (safe C++ stack unwinding)
+
 #include <algorithm>
 #include <cmath>
 #include <cstdarg>
@@ -99,8 +101,7 @@ extern void LASLIB_DLL byebye() {
         lasmessage_cnt[LAS_SERIOUS_WARNING], lasmessage_cnt[LAS_WARNING], lasmessage_cnt[LAS_INFO]);
   }
   if (wait_on_exit_) {
-    std::fprintf(stderr, "<press ENTER>\n");
-    (void)std::getc(stdin);
+    REprintf("<press ENTER>\n");
   }
   //duplicate log messages with the number of repeated times.
   flush_repeated_logs();
@@ -115,7 +116,9 @@ extern void LASLIB_DLL byebye() {
   } else if (lasmessage_cnt[LAS_WARNING] > 0) {
     code = 1;
   }
-  exit(code);
+  if (code > 0) {
+    Rcpp::stop("LASzip fatal error (code %d)", code);
+  }
 }
 
 /// Validates whether a given string is UTF-8 encoded.

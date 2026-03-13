@@ -7,3 +7,6 @@ src/*.so
 src/*.dll
 inst/extdata/millsite.copc.laz
 copc4R.zip
+archives/copc4R-mai0.1.0.zip
+GUIDE.md
+inst/extdata/autzen-classified.copc.laz

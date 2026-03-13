@@ -40,9 +40,6 @@
 extern long lasmessage_cnt[LAS_QUIET];
 
 // central las message function
-#if defined(__GNUC__)
-#pragma GCC diagnostic ignored "-Wredundant-decls"
-#endif
 void LASLIB_DLL LASMessage(LAS_MESSAGE_TYPE type, LAS_FORMAT_STRING(const char*), ...);
 LASLIB_DLL void LASMessageExt(LAS_MESSAGE_TYPE type, unsigned int rep_times, LAS_FORMAT_STRING(const char*) fmt, ...);
 void flush_repeated_logs();

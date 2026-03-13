@@ -17,6 +17,17 @@
 #' (Version Major/Minor, Point Data Format ID, scale factors, offsets,
 #' extents).  \code{read_copc()} already produces a compatible header.
 #'
+#' @examples
+#' \donttest{
+#' if (requireNamespace("lidR", quietly = TRUE)) {
+#'   f <- system.file("extdata", "NoAZCampus_SWFSC_Bldg82_2mVoxel.copc.laz",
+#'                    package = "copc4R")
+#'   result <- read_copc(f, max_depth = 2L, progress = FALSE)
+#'   las <- as_las(result)
+#'   print(las)
+#' }
+#' }
+#'
 #' @export
 as_las <- function(x) {
   if (!requireNamespace("lidR", quietly = TRUE)) {
@@ -33,16 +44,18 @@ as_las <- function(x) {
   dt <- x$data
   hdr_list <- x$header
 
-  # ── Ensure column types match lidR expectations ──────────────────────
-  # lidR expects X/Y/Z as numeric; Intensity/ReturnNumber/etc. as integer.
-  # Our C++ code already does this, but enforce here just in case.
-  num_cols <- c("X", "Y", "Z", "gpstime", "ScanAngleRank")
+  # -- Ensure column types match lidR expectations ----------------------
+  # lidR expects X/Y/Z as numeric; Intensity/ReturnNumber/etc. as integer;
+  # flag fields as logical.
+  num_cols <- c("X", "Y", "Z", "gpstime")
   int_cols <- c("Intensity", "ReturnNumber", "NumberOfReturns",
                 "Classification", "UserData", "PointSourceID",
                 "ScanDirectionFlag", "EdgeOfFlightline",
-                "Synthetic_flag", "Keypoint_flag", "Withheld_flag",
-                "Overlap_flag", "ScannerChannel",
+                "ScanAngleRank", "ScanAngle",
+                "ScannerChannel",
                 "R", "G", "B", "NIR")
+  lgl_cols <- c("Synthetic_flag", "Keypoint_flag", "Withheld_flag",
+                "Overlap_flag")
 
   for (col in num_cols) {
     if (col %in% names(dt) && !is.numeric(dt[[col]])) {
@@ -54,11 +67,16 @@ as_las <- function(x) {
       data.table::set(dt, j = col, value = as.integer(dt[[col]]))
     }
   }
+  for (col in lgl_cols) {
+    if (col %in% names(dt) && !is.logical(dt[[col]])) {
+      data.table::set(dt, j = col, value = as.logical(dt[[col]]))
+    }
+  }
 
-  # ── Build LASheader from the rlas-style list ─────────────────────────
+  # -- Build LASheader from the rlas-style list -------------------------
   las_header <- lidR::LASheader(hdr_list)
 
-  # ── Construct LAS object ─────────────────────────────────────────────
+  # -- Construct LAS object ---------------------------------------------
   las <- lidR::LAS(dt, las_header, check = FALSE)
 
   las

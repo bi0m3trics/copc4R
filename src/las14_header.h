@@ -100,6 +100,32 @@ struct LASHeader {
     }
 };
 
+// ═══════════════════════════════════════════════════════════════════════
+// Extra Bytes support  (VLR: user_id="LASF_Spec", record_id=4)
+//
+// Each Extra Bytes Record is 192 bytes and describes one additional
+// point attribute stored after the standard PDRF fields.
+// ═══════════════════════════════════════════════════════════════════════
+struct ExtraBytesRecord {
+    std::string name;        // dimension name (up to 32 chars)
+    uint8_t     data_type;   // 0=undocumented, 1=uint8 … 10=double
+    uint16_t    byte_size;   // size in bytes per point
+    uint16_t    byte_offset; // offset within the extra bytes block
+    bool        has_scale;
+    bool        has_offset;
+    bool        has_no_data;
+    double      scale;       // scale factor (applied if has_scale)
+    double      offset;      // offset (applied if has_offset)
+    double      no_data;     // no_data sentinel
+};
+
+/// Parse the Extra Bytes VLR to get dimension definitions.
+/// Returns empty vector if VLR not found.
+std::vector<ExtraBytesRecord> parse_extra_bytes_vlr(const LASHeader& h);
+
+/// Size in bytes of standard PDRF fields (without extra bytes).
+uint16_t standard_point_size(uint8_t pdrf);
+
 // ── Parse helpers ─────────────────────────────────────────────────────
 /// Read the LAS header + all VLRs from a RangeReader.
 /// Also reads EVLRs if the header indicates them.

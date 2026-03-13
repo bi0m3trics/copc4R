@@ -29,6 +29,8 @@ struct DecodedPoint {
     double   gpstime;
     uint16_t red, green, blue;
     uint16_t nir;
+    // Extra bytes (appended after standard PDRF fields)
+    std::vector<uint8_t> extra_bytes;
 };
 
 // ═══════════════════════════════════════════════════════════════════════

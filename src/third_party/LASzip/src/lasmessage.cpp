@@ -30,6 +30,8 @@
 */
 #include "lasmessage.hpp"
 
+#include <R.h>  // for REprintf (R-safe stderr)
+
 #include <cassert>
 #include <stdarg.h>
 #include <stdio.h>
@@ -85,7 +87,7 @@ std::string las_message_type_string(LAS_MESSAGE_TYPE in) {
 void buildMessage(char *buffer, LAS_MESSAGE_TYPE type, LAS_FORMAT_STRING(const char*) fmt, va_list args) {
   int len = vsnprintf(buffer, LAS_MAX_MESSAGE_LENGTH, fmt, args);
   if (len > LAS_MAX_MESSAGE_LENGTH) {  // avoid buffer overflow. messages longer than LAS_MAX_MESSAGE_LENGTH should not occur!
-    fprintf(stderr, "INTERNAL: message cropped from %d to %d chars", len, LAS_MAX_MESSAGE_LENGTH);
+    REprintf("INTERNAL: message cropped from %d to %d chars", len, LAS_MAX_MESSAGE_LENGTH);
     len = LAS_MAX_MESSAGE_LENGTH;
   }
   // remove trailing line feed
@@ -290,10 +292,10 @@ void las_default_message_handler(LAS_MESSAGE_TYPE type, const char* msg, void* u
 
   if (!prefix.empty()) {
     format_message(message, (unsigned)prefix.size());
-    fprintf(stderr, "%s", prefix.c_str());
-    fprintf(stderr, "%s", message.c_str());
+    REprintf("%s", prefix.c_str());
+    REprintf("%s", message.c_str());
   } else {
-    fprintf(stderr, "%s\n", message.c_str());
+    REprintf("%s\n", message.c_str());
   }
 }
 

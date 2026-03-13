@@ -7,51 +7,105 @@
 read_copc(
   path_or_url,
   bbox = NULL,
+  aoi = NULL,
+  buffer = NULL,
   zrange = NULL,
   select = NULL,
+  filter = NULL,
+  max_depth = -1L,
+  resolution = NULL,
   max_points = Inf,
+  threads = 4L,
+  collections = NULL,
   progress = TRUE
 )
 }
 \arguments{
-\item{path_or_url}{Character. Path to a local .copc.laz file, or an
-HTTP(S) URL.  Remote files are transparently downloaded to a
-temporary file the first time they are accessed in a session.}
+\item{path_or_url}{Character. One of:
+\itemize{
+\item A local path to a \code{.copc.laz} file.
+\item A direct HTTP(S) URL to a \code{.copc.laz} file (streamed via
+HTTP range reads).
+\item A \strong{STAC search endpoint URL} (e.g.
+\code{"https://planetarycomputer.microsoft.com/api/stac/v1/search"}).
+When a STAC URL is detected, the function queries the catalog using
+\code{aoi}, discovers all intersecting COPC tiles, streams only the
+AOI portion from each tile, and returns a single merged result.
+Tile signing (e.g. Planetary Computer SAS tokens) is handled
+automatically.
+}}
 
 \item{bbox}{Numeric vector of length 4: \code{c(xmin, ymin, xmax, ymax)}.
 Only points within this 2-D bounding box are returned.
-\code{NULL} (default) reads all points.}
+\code{NULL} (default) reads all points.
+You may also pass a numeric(4) directly to \code{aoi} as a shorthand.}
+
+\item{aoi}{Spatial query region.  Accepts any of the following -- the
+function figures out the right thing to do automatically:
+\itemize{
+\item An \code{sf} / \code{sfc} \strong{POLYGON or MULTIPOLYGON}: the
+COPC octree is queried via the polygon bounding box and points are
+clipped to the exact polygon boundary.
+\item An \code{sf} / \code{sfc} \strong{LINESTRING or MULTILINESTRING}:
+buffered by \code{buffer} (required) to form a corridor polygon, then
+handled as above.
+\item An \code{sf} / \code{sfc} \strong{POINT or MULTIPOINT}: buffered
+by \code{buffer} (required) to form a circle/union polygon, then
+handled as above.
+\item A \strong{numeric vector of length 4}
+\code{c(xmin, ymin, xmax, ymax)}: equivalent to supplying \code{bbox}.
+}
+The AOI is automatically reprojected to the file's native CRS when
+the CRS of \code{aoi} differs from the file.  Requires \pkg{sf}.}
+
+\item{buffer}{Numeric. Buffer distance (in the AOI's CRS units) applied
+when \code{aoi} is a point or line geometry.  Required for those
+geometry types; ignored for polygons.  Default \code{NULL}.}
 
 \item{zrange}{Numeric vector of length 2: \code{c(zmin, zmax)}.
 Additional Z-range filter. \code{NULL} (default) = no Z filter.}
 
-\item{select}{Character. Column selection string following lidR-style
-semantics:
-\itemize{
-\item \code{"xyz"} = X, Y, Z
-\item \code{"i"} = Intensity
-\item \code{"t"} = gpstime
-\item \code{"r"} = ReturnNumber
-\item \code{"n"} = NumberOfReturns
-\item \code{"c"} = Classification
-\item \code{"a"} = ScanAngleRank
-\item \code{"s"} = PointSourceID
-\item \code{"u"} = UserData
-\item \code{"p"} = flags (ScanDirectionFlag, EdgeOfFlightline, Synthetic/Keypoint/Withheld/Overlap, ScannerChannel)
-\item \code{"R"} = RGB (if PDRF >= 7)
-\item \code{"N"} = NIR (if PDRF 8)
-\item \code{"*"} or \code{NULL} = all available columns
-}}
+\item{select}{Character. Column selection using lidR-style single-letter codes:
+\code{"x"} X, \code{"y"} Y, \code{"z"} Z, \code{"i"} Intensity,
+\code{"t"} gpstime, \code{"r"} ReturnNumber, \code{"n"} NumberOfReturns,
+\code{"c"} Classification, \code{"a"} ScanAngleRank,
+\code{"s"} PointSourceID, \code{"u"} UserData, \code{"p"} flags,
+\code{"R"} RGB (PDRF\eqn{\ge}7), \code{"N"} NIR (PDRF 8).
+\code{"*"} or \code{NULL} (default) returns all columns.}
 
-\item{max_points}{Numeric. Maximum number of points to return.
-\code{Inf} (default) returns all selected points.}
+\item{filter}{Character.  LAStools/lidR-style filter string.  Predicates
+can be combined, e.g.
+\code{"-keep_class 2 6 -drop_withheld -keep_voxel 0.5"}.
+See the \sQuote{Point filters} section for all supported predicates.}
 
-\item{progress}{Logical. Print progress messages? Default \code{TRUE}.}
+\item{max_depth}{Integer.  Maximum octree depth.  Lower values yield
+sparser (coarser) clouds, useful for previews or LOD sampling.
+\code{-1L} (default) fetches all levels.}
+
+\item{resolution}{Numeric.  Target point spacing (CRS units).  When
+supplied the appropriate \code{max_depth} is computed automatically.
+Overrides \code{max_depth}.  Equivalent to PDAL \code{readers.copc}
+\code{resolution}.}
+
+\item{max_points}{Numeric.  Cap on total points returned.
+\code{Inf} (default) = no cap.}
+
+\item{threads}{Integer.  Parallel download threads for remote files.
+Ignored for local files.  Default \code{4L}.}
+
+\item{collections}{Character.  STAC collection ID(s) to search when
+\code{path_or_url} is a STAC endpoint.  Automatically set to
+\code{"3dep-lidar-copc"} for the Microsoft Planetary Computer.
+Only needed for other STAC catalogs.  Default \code{NULL}.}
+
+\item{progress}{Logical. Print progress messages?  Default \code{TRUE}.}
 }
 \value{
 A named list with two elements:
 \describe{
-\item{\code{$data}}{A \code{data.table} of point attributes.}
+\item{\code{$data}}{A \code{data.table} of point attributes.
+Extra Bytes dimensions (if present in the file) are included
+as additional numeric columns.}
 \item{\code{$header}}{A named list of header fields following
 rlas naming conventions.}
 }
@@ -59,4 +113,67 @@ rlas naming conventions.}
 \description{
 Reads point records from a Cloud Optimized Point Cloud file, applying
 optional spatial queries via the COPC hierarchy.
+}
+\section{Point filters}{
+
+The \code{filter} parameter accepts LAStools-style predicates; combine
+any number in a single string.
+\describe{
+\item{Classification}{\code{-keep_class <c1> <c2> ...},
+\code{-drop_class <c1> <c2> ...},
+\code{-keep_ground} (class 2),
+\code{-drop_noise} (classes 7 & 18)}
+\item{Return number}{\code{-keep_first}, \code{-keep_last},
+\code{-keep_single}, \code{-keep_return <r1> ...},
+\code{-drop_return <r1> ...}}
+\item{Flags}{\code{-drop_withheld}, \code{-drop_overlap}}
+\item{Intensity}{\code{-keep_intensity_above <val>},
+\code{-keep_intensity_below <val>}}
+\item{Z-value}{\code{-keep_z_above <val>}, \code{-keep_z_below <val>}}
+\item{Scan angle}{\code{-keep_scan_angle_above <deg>},
+\code{-keep_scan_angle_below <deg>}}
+\item{Thinning}{\code{-keep_random_fraction <0-1>},
+\code{-keep_every_nth <n>},
+\code{-keep_voxel <size>} (3-D voxel grid; keeps the point nearest
+the voxel center per occupied cell; applied after other predicates)}
+}
+}
+
+\examples{
+f <- system.file("extdata", "NoAZCampus_SWFSC_Bldg82_2mVoxel.copc.laz",
+                 package = "copc4R")
+
+# Read all points
+result <- read_copc(f, progress = FALSE)
+head(result$data)
+nrow(result$data)
+
+\donttest{
+# Bounding box as aoi shorthand (numeric(4))
+hdr <- read_copc_header(f)
+xmid <- (hdr[["Min X"]] + hdr[["Max X"]]) / 2
+ymid <- (hdr[["Min Y"]] + hdr[["Max Y"]]) / 2
+ground <- read_copc(f, aoi = c(xmid-50, ymid-50, xmid+50, ymid+50),
+                    filter = "-keep_class 2", progress = FALSE)
+
+# Polygon AOI -- auto-clips to boundary
+if (requireNamespace("sf", quietly = TRUE)) {
+  gpkg <- system.file("extdata", "NoAZCampus_SWFSC_Bldg82.gpkg",
+                      package = "copc4R")
+  bldg <- sf::st_read(gpkg, quiet = TRUE)
+  result <- read_copc(f, aoi = bldg, progress = FALSE)
+
+  # Point AOI with buffer -- auto-buffers and clips
+  pt <- sf::st_sf(geometry = sf::st_sfc(
+    sf::st_point(c(xmid, ymid)), crs = sf::st_crs(bldg)))
+  result_pt <- read_copc(f, aoi = pt, buffer = 20, progress = FALSE)
+}
+
+# Coarse LOD preview (fewer points)
+preview <- read_copc(f, max_depth = 2L, progress = FALSE)
+
+# Voxel thinning via the filter string
+thinned <- read_copc(f, filter = "-keep_voxel 1.0", progress = FALSE)
+}
+
 }

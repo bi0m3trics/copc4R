@@ -73,7 +73,8 @@ std::vector<NodeChunk> select_nodes(
     double bbox_xmax, double bbox_ymax,
     double zmin, double zmax,
     bool   has_bbox,
-    bool   has_zrange)
+    bool   has_zrange,
+    int    max_depth)
 {
     std::vector<NodeChunk> result;
 
@@ -93,6 +94,10 @@ std::vector<NodeChunk> select_nodes(
             if (e.point_count == 0)
                 continue;
 
+            // LOD depth limit: skip nodes deeper than max_depth
+            if (max_depth >= 0 && e.key.level > max_depth)
+                continue;
+
             // Spatial filtering: derive this node's bounding box
             AABB bounds = node_bounds(info, e.key);
             if (has_bbox &&
@@ -104,6 +109,7 @@ std::vector<NodeChunk> select_nodes(
 
             if (e.point_count == -1) {
                 // This entry points to a child hierarchy page
+                // Only follow if children could be within depth limit
                 page_queue.push({e.offset,
                                  static_cast<uint64_t>(e.byte_size)});
             } else {
@@ -125,6 +131,47 @@ std::vector<NodeChunk> select_nodes(
               });
 
     return result;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// count_nodes  –  count points without decompressing
+// ═══════════════════════════════════════════════════════════════════════
+NodeCount count_nodes(
+    RangeReader& reader,
+    const COPCInfo& info,
+    double bbox_xmin, double bbox_ymin,
+    double bbox_xmax, double bbox_ymax,
+    bool   has_bbox)
+{
+    NodeCount nc{0, 0};
+    struct PageRef { uint64_t offset; uint64_t size; };
+    std::queue<PageRef> page_queue;
+    page_queue.push({info.root_hier_offset, info.root_hier_size});
+
+    while (!page_queue.empty()) {
+        auto [pg_off, pg_sz] = page_queue.front();
+        page_queue.pop();
+
+        auto entries = parse_hierarchy_page(reader, pg_off, pg_sz);
+        for (auto& e : entries) {
+            if (e.point_count == 0) continue;
+
+            AABB bounds = node_bounds(info, e.key);
+            if (has_bbox &&
+                !bounds.intersects_xy(bbox_xmin, bbox_ymin,
+                                      bbox_xmax, bbox_ymax))
+                continue;
+
+            if (e.point_count == -1) {
+                page_queue.push({e.offset,
+                                 static_cast<uint64_t>(e.byte_size)});
+            } else {
+                nc.total_points += static_cast<uint64_t>(e.point_count);
+                nc.num_nodes++;
+            }
+        }
+    }
+    return nc;
 }
 
 } // namespace copc4r
