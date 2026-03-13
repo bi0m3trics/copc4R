@@ -2,7 +2,7 @@
 
 ![licence](https://img.shields.io/badge/Licence-MIT-blue.svg)
 
-R package to read [Cloud Optimized Point Cloud (COPC)](https://copc.io/) files from local disk or HTTP endpoints using range reads.
+R package for reading and writing [Cloud Optimized Point Cloud (COPC)](https://copc.io/) files from local disk or HTTP(S) endpoints using range reads. Supports spatial queries, multi-resolution sampling, streaming iteration, deterministic tiling, and [lidR](https://github.com/r-lidar/lidR) catalog integration.
 
 `copc4R` relies on a modified version of `LASzip` that was adapted to be compatible with `R`. The library can therefore be compiled into `R` without any complaints from `R CMD check`. It enables R users to read `.copc.laz` binary files — a single-file, spatially indexed variant of LAZ commonly used for streaming LiDAR data from the cloud.
 
@@ -59,8 +59,15 @@ lidR::plot(las)
 
 ## Features
 
-- Reads `.copc.laz` files from **local paths** or **HTTP(S) URLs** (via range reads).
-- Spatial bounding box and Z-range filtering through the COPC octree hierarchy.
+- Reads `.copc.laz` files from **local paths** or **HTTP(S) URLs** via range reads — only the bytes you need are fetched.
+- **Spatial filtering**: bounding box, polygon AOI, corridor, and Z-range queries through the COPC octree hierarchy.
+- **Attribute filters**: pass lidR/LAStools-style filter strings (e.g. `-keep_first`, `-drop_noise`, `-keep_voxel`).
+- **Multi-resolution LOD sampling** for fast previews without reading the full point cloud.
+- **Deterministic tiling** for reproducible, grid-based point cloud partitioning.
+- **Streaming iterators** for memory-efficient processing of large files.
+- **lidR catalog integration** via `read_copc_catalog()` and `copc_apply()`.
+- **STAC / Planetary Computer** support — auto-discovers intersecting COPC tiles from a STAC endpoint.
+- Writes `.copc.laz` files via `write_copc()`.
 - Returns `data.table` output with [rlas](https://github.com/r-lidar/rlas)-compatible header conventions.
 - Column selection via a lidR-style `select` string (`"xyz"`, `"xyzirc"`, `"*"`, etc.).
 - Optional conversion to `lidR::LAS` objects via `as_las()`.
