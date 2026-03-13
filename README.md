@@ -4,7 +4,7 @@
 
 R package for reading and writing [Cloud Optimized Point Cloud (COPC)](https://copc.io/) files from local disk or HTTP(S) endpoints using range reads. Supports spatial queries, multi-resolution sampling, streaming iteration, deterministic tiling, and [lidR](https://github.com/r-lidar/lidR) catalog integration.
 
-`copc4R` relies on a modified version of `LASzip` that was adapted to be compatible with `R`. The library can therefore be compiled into `R` without any complaints from `R CMD check`. It enables R users to read `.copc.laz` binary files — a single-file, spatially indexed variant of LAZ commonly used for streaming LiDAR data from the cloud.
+It enables R users to read `.copc.laz` binary files — a single-file, spatially indexed variant of LAZ commonly used for streaming LiDAR data from the cloud.
 
 ## Installation
 
