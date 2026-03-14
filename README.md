@@ -21,7 +21,7 @@ library(sf)
 library(copc4R)
 
 # ── Define a point location and buffer to a 100 m circular AOI ───────────────
-sf_use_s2(TRUE)   # st_buffer unit is metres for geographic CRS
+sf_use_s2(TRUE)   # st_buffer unit is meters for geographic CRS
 
 aoi <- st_sf(
   id       = 1,
