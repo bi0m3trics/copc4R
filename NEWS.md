@@ -1,3 +1,112 @@
+# copc4R 0.3.0
+
+## Bug fixes
+
+* **`write_copc()` cross-reader compatibility**: Files produced by
+  `write_copc()` could only be read back by copc4R's own lenient reader.
+  Three issues were fixed in the LASzip writer:
+    - Set the 0x80 LAZ compression bit in the point-data-format byte so
+      external readers recognise the file as LAZ-compressed.
+    - Use `request_version(2)` for POINT14 (point format 6–10) to write
+      LASzip v3 records instead of v4, which is not yet widely supported.
+    - Set `hdr.num_evlrs = 0` to prevent LASlib's EPT-octree reader from
+      corrupting internal state when both the COPC info VLR and COPC
+      hierarchy EVLR are present.
+  Output files are now readable by **rlas**, **lidR**, **lasR**, and **PDAL**.
+
+## Documentation
+
+* **Ecosystem tutorial** (`vignettes/ecosystem-tutorial.md`): New
+  comprehensive guide covering 6 tutorials — from first read to parallel
+  chunk processing, CHM generation, Planetary Computer / 3DEP access,
+  VPC interoperability with lasR / QGIS, and drone / UAS data from
+  CyVerse.  Includes a Quick-Reference cheat sheet.
+
+## New features
+
+### Virtual Point Cloud (VPC) support
+
+* **`read_copc_vpc()`**: Reads `.vpc` files (STAC ItemCollection / GeoJSON
+  FeatureCollection) as used by QGIS and PDAL wrench.  Returns a
+  `copc_catalog` or `lidR::LAScatalog` ready for processing with
+  `copc_catalog_apply()` or `copc_apply()`.  Supports local and remote VPC
+  files, resolves relative asset paths, and preserves VPC metadata
+  (statistics, overview references, CRS) in a `"vpc_metadata"` attribute.
+  Non-COPC tiles (plain `.las`/`.laz`) are detected and skipped with a
+  warning; a `lidR::readLAS()` fallback is planned.
+
+* **`write_copc_vpc()`**: Creates `.vpc` files from one or more COPC files.
+  The output is a valid STAC ItemCollection that can be loaded directly
+  in QGIS or processed with PDAL wrench.  Supports optional boundary
+  polygon computation (convex hull from LOD-0 points), per-attribute
+  statistics, and overview generation.  Follows the STAC `pointcloud`
+  and `projection` extensions.
+
+### VPC spec conformance improvements
+
+* **Compound CRS handling**: Compound CRS (e.g. horizontal + vertical)
+  is detected via WKT keywords `COMPD_CS` / `COMPOUNDCRS`.  When
+  detected, `proj:epsg` is omitted (ambiguous for compound systems per
+  the VPC spec) and `proj:wkt2` is used instead.
+
+* **`proj:projjson` support**: `write_copc_vpc()` now emits `proj:projjson`
+  when the `projinfo` CLI tool is available (PROJ >= 6).  `read_copc_vpc()`
+  reads `proj:projjson` into the VPC metadata.
+
+* **3-D bounding boxes**: Both `bbox` (WGS 84) and `proj:bbox` (native
+  CRS) are always 6-element 3-D arrays as strongly recommended by the
+  VPC specification.
+
+* **Hierarchical overviews**: `write_copc_vpc()` gains an `overview_levels`
+  parameter.  Level 0 produces a single merged overview; each
+  additional level creates a 2×2 tiled pyramid at progressively higher
+  density, enabling seamless QGIS zoom transitions for large datasets.
+
+### lasR / ecosystem interoperability
+
+* **`pc:indexed = true`** is now emitted by `write_copc_vpc()` for every
+  COPC tile.  COPC files always have a spatial index (octree), so
+  this property is unconditionally true.  lasR reads this to avoid
+  redundant spatial-index checks.
+
+* **`read_copc_vpc()` fast path** (`trust_vpc = TRUE`, the default): builds
+  the catalog directly from VPC metadata (bboxes, CRS, pc:count) without
+  re-reading each COPC file header.  For large collections (1 000s of
+  tiles), this avoids thousands of HTTP round-trips that header reading
+  would otherwise require.
+
+* **New example** `examples/copc4R_to_lasR.R` documents the recommended
+  handoff workflow: copc4R for cloud-native discovery and I/O → VPC as
+  the interoperability glue → lasR (or lidR) for processing.
+
+### Interactive AOI selection
+
+* **`get_aoi()`**: Interactive AOI picker using leaflet + mapedit.
+  Opens a satellite imagery map (with browser geolocation), lets the
+  user draw a rectangle, and returns an `sf` polygon ready for
+  `download_3dep_copc()` or `read_copc()`.
+
+### Octree-based adaptive chunking
+
+* **`copc_estimate_points()`**: Queries the COPC octree hierarchy to
+  estimate point counts for one or more bounding boxes without reading
+  any point data.  Fast even for remote files -- only hierarchy pages
+  are fetched.
+
+* **`copc_adaptive_split()`**: Recursively subdivides a spatial window
+  (quadtree-style) until every sub-tile has estimated point count below
+  a threshold.  Includes a `collar` parameter for processing overlap
+  that's trimmed after processing.  Implements the pattern described by
+  Howard Butler for balancing "work units" of target size/memory/complexity.
+
+* **`copc_apply()` gains `max_points_per_chunk`**: When set, chunks in
+  the regular spatial grid that exceed the estimated point threshold are
+  recursively split into smaller sub-chunks.  This integrates the
+  adaptive splitting directly into the processing engine for
+  density-aware parallel workflows.
+
+---
+
 # copc4R 0.2.0
 
 ## Build system
@@ -140,7 +249,7 @@
 
 * **Catalog ergonomics**: `read_copc_catalog()` builds a `lidR::LAScatalog`
   (or lightweight `copc_catalog` S3 object) from one or more COPC
-  paths/URLs.  `catalog_apply()` processes chunks with a user function.
+  paths/URLs.  `copc_catalog_apply()` processes chunks with a user function.
 
 * **Extra Bytes / dimensions**: Files with Extra Bytes VLR
   (`LASF_Spec` record 4) now have their additional dimensions decoded

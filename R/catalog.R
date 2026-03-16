@@ -154,23 +154,23 @@ print.copc_catalog <- function(x, ...) {
 #' f <- system.file("extdata", "NoAZCampus_SWFSC_Bldg82_2mVoxel.copc.laz",
 #'                  package = "copc4R")
 #' ctg <- read_copc_catalog(f, chunk_size = 100, progress = FALSE)
-#' results <- catalog_apply(ctg, function(x) nrow(x$data), progress = FALSE)
+#' results <- copc_catalog_apply(ctg, function(x) nrow(x$data), progress = FALSE)
 #' }
 #'
-#' \dontrun{
+#' \donttest{
 #' # Parallel processing (4 cores)
-#' results <- catalog_apply(ctg, function(x) {
+#' results <- copc_catalog_apply(ctg, function(x) {
 #'   data.frame(n = nrow(x$data), z_mean = mean(x$data$Z))
 #' }, cores = 4L, progress = FALSE)
 #' }
 #'
 #' @export
-catalog_apply <- function(catalog, fun, ..., cores = 1L, progress = TRUE) {
-  UseMethod("catalog_apply")
+copc_catalog_apply <- function(catalog, fun, ..., cores = 1L, progress = TRUE) {
+  UseMethod("copc_catalog_apply")
 }
 
 #' @export
-catalog_apply.copc_catalog <- function(catalog, fun, ...,
+copc_catalog_apply.copc_catalog <- function(catalog, fun, ...,
                                        cores = 1L,
                                        progress = TRUE) {
   opts   <- catalog$options
@@ -208,7 +208,7 @@ catalog_apply.copc_catalog <- function(catalog, fun, ...,
 
   n_chunks <- length(chunks)
   if (progress)
-    message(sprintf("catalog_apply: %d chunk(s) from %d file(s)%s",
+    message(sprintf("copc_catalog_apply: %d chunk(s) from %d file(s)%s",
                     n_chunks, nrow(catalog$files),
                     if (as.integer(cores) > 1L)
                       sprintf(", %d cores", as.integer(cores)) else ""))
@@ -251,7 +251,7 @@ catalog_apply.copc_catalog <- function(catalog, fun, ...,
 
 
 #' @export
-catalog_apply.LAScatalog <- function(catalog, fun, ...,
+copc_catalog_apply.LAScatalog <- function(catalog, fun, ...,
                                      cores = 1L,
                                      progress = TRUE) {
   files  <- catalog@data$filename
@@ -288,7 +288,7 @@ catalog_apply.LAScatalog <- function(catalog, fun, ...,
 
   n_chunks <- length(chunks)
   if (progress)
-    message(sprintf("catalog_apply: %d chunk(s) from %d file(s)%s",
+    message(sprintf("copc_catalog_apply: %d chunk(s) from %d file(s)%s",
                     n_chunks, length(files),
                     if (as.integer(cores) > 1L)
                       sprintf(", %d cores", as.integer(cores)) else ""))
@@ -378,7 +378,7 @@ catalog_apply.LAScatalog <- function(catalog, fun, ...,
 # copc_apply() -- COPC-native parallel chunk processing engine
 # ========================================================================
 #
-# The spiritual successor to catalog_apply(): splits a spatial extent
+# The spiritual successor to copc_catalog_apply(): splits a spatial extent
 # into a regular grid of chunks, reads each chunk (plus buffer) from
 # one or more COPC files via range queries, converts to lidR::LAS,
 # applies a user function, clips buffer from the output, and optionally
@@ -395,7 +395,8 @@ catalog_apply.LAScatalog <- function(catalog, fun, ...,
 #' queries, converts to a \code{lidR::LAS} object, and applies a
 #' user-supplied function.
 #'
-#' This is the COPC-native equivalent of \code{lidR::catalog_apply()}.
+#' This is the COPC-native equivalent of \code{lidR::catalog_apply()}
+#' and the successor to \code{\link{copc_catalog_apply}()}.
 #' Unlike a traditional \code{LAScatalog} workflow that reads from local
 #' \code{.las}/\code{.laz} tiles, \code{copc_apply()} queries the COPC
 #' octree spatial index and streams only the needed data for each chunk
@@ -479,6 +480,18 @@ catalog_apply.LAScatalog <- function(catalog, fun, ...,
 #'   summary messages.  For parallel (\pkg{future}) execution the
 #'   \pkg{progressr} package is supported: wrap the call in
 #'   \code{progressr::with_progress()} to see updates.
+#' @param max_points_per_chunk Numeric or \code{NULL}.  When set,
+#'   after building the regular chunk grid each chunk is checked
+#'   against the COPC octree to estimate its point count.  Chunks
+#'   exceeding this threshold are recursively split (quadtree-style)
+#'   into smaller sub-chunks until the estimate drops below the limit
+#'   (or \code{min_split_size} is reached).  This implements the
+#'   adaptive work-unit pattern: balance memory/complexity per chunk
+#'   rather than using a fixed spatial grid.
+#'   Default \code{NULL} (disabled -- use uniform spatial grid only).
+#' @param min_split_size Numeric.  Minimum side length (CRS units) for
+#'   adaptive sub-chunking.  Below this threshold splitting stops even
+#'   if \code{max_points_per_chunk} is exceeded.  Default \code{25}.
 #' @param plot Logical.  When \code{TRUE}, opens a graphics window
 #'   showing the chunk grid and colours each tile as it is processed
 #'   (green = success, orange = empty/skipped).  This mimics the
@@ -504,7 +517,7 @@ catalog_apply.LAScatalog <- function(catalog, fun, ...,
 #' print(results)
 #' }
 #'
-#' \dontrun{
+#' \donttest{
 #' # Parallel processing with the future framework
 #' library(future)
 #' plan(multisession, workers = 4)
@@ -527,16 +540,18 @@ catalog_apply.LAScatalog <- function(catalog, fun, ...,
 copc_apply <- function(source,
                        FUN,
                        ...,
-                       aoi             = NULL,
-                       chunk_size      = 200,
-                       chunk_buffer    = 15,
-                       chunk_alignment = c(0, 0),
-                       select          = "*",
-                       filter          = "",
-                       packages        = NULL,
-                       automerge       = TRUE,
-                       progress        = TRUE,
-                       plot            = FALSE) {
+                       aoi                  = NULL,
+                       chunk_size           = 200,
+                       chunk_buffer         = 15,
+                       chunk_alignment      = c(0, 0),
+                       max_points_per_chunk = NULL,
+                       min_split_size       = 25,
+                       select               = "*",
+                       filter               = "",
+                       packages             = NULL,
+                       automerge            = TRUE,
+                       progress             = TRUE,
+                       plot                 = FALSE) {
 
   # -- validation --------------------------------------------------------
   if (!requireNamespace("lidR", quietly = TRUE))
@@ -555,6 +570,8 @@ copc_apply <- function(source,
   # -- resolve source to character paths ---------------------------------
   if (inherits(source, "copc_catalog")) {
     paths <- source$files$filename
+  } else if (inherits(source, "LAScatalog")) {
+    paths <- source@data$filename
   } else {
     paths <- as.character(source)
   }
@@ -595,6 +612,42 @@ copc_apply <- function(source,
   if (n_chunks == 0L) {
     warning("Degenerate processing extent -- no chunks created.", call. = FALSE)
     return(if (automerge) NULL else list())
+  }
+
+  # -- adaptive splitting (optional) -------------------------------------
+  # If max_points_per_chunk is set, subdivide chunks that exceed the
+
+  # threshold using the octree hierarchy (no decompression needed).
+  if (!is.null(max_points_per_chunk)) {
+    stopifnot(is.numeric(max_points_per_chunk),
+              length(max_points_per_chunk) == 1L,
+              max_points_per_chunk > 0)
+    stopifnot(is.numeric(min_split_size),
+              length(min_split_size) == 1L,
+              min_split_size > 0)
+
+    if (progress)
+      message(sprintf("  Adaptive splitting: max %s pts/chunk, min size %.0fm",
+                      format(max_points_per_chunk, big.mark = ","),
+                      min_split_size))
+
+    new_grid <- list()
+
+    for (i in seq_len(nrow(grid))) {
+      bb <- c(grid$xmin[i], grid$ymin[i], grid$xmax[i], grid$ymax[i])
+      sub_tiles <- .adaptive_quadtree_split(
+        paths, bb, max_points_per_chunk, min_split_size
+      )
+      for (st in sub_tiles) {
+        new_grid[[length(new_grid) + 1L]] <- st
+      }
+    }
+
+    grid <- do.call(rbind, new_grid)
+    n_chunks <- nrow(grid)
+
+    if (progress)
+      message(sprintf("  After adaptive split: %d chunks", n_chunks))
   }
 
   # -- find which source files overlap each chunk (+buffer) --------------
@@ -670,7 +723,11 @@ copc_apply <- function(source,
       out <- do.call(FUN, c(list(las), extras))
 
       # Clip buffer from result
-      .clip_chunk_buffer(out, task$chunk_bbox)
+      out <- .clip_chunk_buffer(out, task$chunk_bbox)
+
+      # Wrap terra objects so they survive serialisation back to the
+      # main process (external pointers are not valid across processes).
+      .wrap_for_transport(out)
 
     }, error = function(e) {
       warning(sprintf("copc_apply chunk %d: %s",
@@ -687,9 +744,9 @@ copc_apply <- function(source,
   if (use_future) {
     # Auto-detect packages for workers
     worker_pkgs <- "copc4R"
-    for (p in c("lidR", "sf", "terra", "data.table", "rlas"))
-      if (requireNamespace(p, quietly = TRUE))
-        worker_pkgs <- c(worker_pkgs, p)
+    for (.pkg in c("lidR", "sf", "terra", "data.table", "rlas"))
+      if (requireNamespace(.pkg, quietly = TRUE))
+        worker_pkgs <- c(worker_pkgs, .pkg)
     worker_pkgs <- unique(c(worker_pkgs, packages))
 
     plan_label <- class(future::plan())[1L]
@@ -744,6 +801,9 @@ copc_apply <- function(source,
 
   if (progress)
     message(sprintf("copc_apply: %d/%d chunks returned results", n_ok, n_active))
+
+  # Unwrap any packed terra objects before merging / returning
+  results <- lapply(results, .unwrap_from_transport)
 
   if (automerge) return(.copc_automerge(results))
   results
@@ -835,6 +895,34 @@ copc_apply <- function(source,
 }
 
 
+#' Wrap terra objects for safe transport across process boundaries
+#'
+#' SpatRaster and SpatVector use C++ external pointers that become
+#' invalid when serialised to a parallel worker and back.  This wraps
+#' them into inert R objects that can be safely transferred, mirroring
+#' what lidR's engine does internally.
+#' @noRd
+.wrap_for_transport <- function(x) {
+  if (is.null(x)) return(NULL)
+  if (requireNamespace("terra", quietly = TRUE)) {
+    if (inherits(x, "SpatRaster") || inherits(x, "SpatVector"))
+      return(terra::wrap(x))
+  }
+  x
+}
+
+#' Restore packed terra objects after transport
+#' @noRd
+.unwrap_from_transport <- function(x) {
+  if (is.null(x)) return(NULL)
+  if (requireNamespace("terra", quietly = TRUE)) {
+    if (inherits(x, "PackedSpatRaster") || inherits(x, "PackedSpatVector"))
+      return(terra::unwrap(x))
+  }
+  x
+}
+
+
 #' Auto-merge a list of chunk results
 #'
 #' Dispatches on the first non-NULL result's type.
@@ -888,8 +976,7 @@ copc_apply <- function(source,
   dx <- diff(xr) * 0.04
   dy <- diff(yr) * 0.04
 
-  oldpar <- graphics::par(mar = c(2.5, 2.5, 1.5, 0.5), no.readonly = TRUE)
-  on.exit(graphics::par(oldpar), add = TRUE)
+  graphics::par(mar = c(2.5, 2.5, 1.5, 0.5))
 
   graphics::plot.new()
   graphics::plot.window(xlim = c(xr[1] - dx, xr[2] + dx),
@@ -938,4 +1025,54 @@ copc_apply <- function(source,
   graphics::rect(grid$xmin[i], grid$ymin[i],
                  grid$xmax[i], grid$ymax[i],
                  col = fill, border = "grey70", lwd = 0.4)
+}
+
+
+# -- Adaptive quadtree split (used by copc_apply max_points_per_chunk) -----
+
+#' Recursively split a bbox until estimated points are below threshold
+#'
+#' Queries the COPC octree hierarchy across all `paths` to sum point
+#' estimates.  Splits quadtree-style when the sum exceeds `max_pts`.
+#' @noRd
+.adaptive_quadtree_split <- function(paths, bbox, max_pts, min_size) {
+  # Sum estimates across all overlapping files
+  total_est <- 0L
+  for (p in paths) {
+    path <- .resolve_path(p, progress = FALSE)
+    node_info <- tryCatch(
+      cpp_count_nodes(path, as.numeric(bbox)),
+      error = function(e) list(total_points = 0L)
+    )
+    total_est <- total_est + node_info$total_points
+  }
+
+  width  <- bbox[3] - bbox[1]
+  height <- bbox[4] - bbox[2]
+
+  if (total_est <= max_pts || width <= min_size || height <= min_size) {
+    return(list(data.frame(
+      xmin = bbox[1], ymin = bbox[2],
+      xmax = bbox[3], ymax = bbox[4],
+      stringsAsFactors = FALSE
+    )))
+  }
+
+  # Split into 4 quadrants
+  xmid <- (bbox[1] + bbox[3]) / 2
+  ymid <- (bbox[2] + bbox[4]) / 2
+
+  quads <- list(
+    c(bbox[1], bbox[2], xmid,    ymid),     # SW
+    c(xmid,    bbox[2], bbox[3], ymid),     # SE
+    c(bbox[1], ymid,    xmid,    bbox[4]),  # NW
+    c(xmid,    ymid,    bbox[3], bbox[4])   # NE
+  )
+
+  result <- list()
+  for (q in quads) {
+    sub <- .adaptive_quadtree_split(paths, q, max_pts, min_size)
+    result <- c(result, sub)
+  }
+  result
 }

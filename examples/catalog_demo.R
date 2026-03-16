@@ -41,15 +41,32 @@ cat("===================================================================\n\n")
 # 1. Define the AOI rectangle (WGS 84)
 # ---------------------------------------------------------------------------
 # Forested area near Bryce Canyon, UT -- approx 1 km x 1 km
-las_box <- st_as_sfc(st_bbox(c(
-  xmin = 394000,
-  xmax = 395000,
-  ymin = 4162000,
-  ymax = 4163000
-), crs = st_crs(6341)))
+coords <- matrix(
+  c(
+    -111.5649374, 35.2452949,
+    -111.5697439, 35.2407034,
+    -111.5633925, 35.2356911,
+    -111.5637787, 35.2292061,
+    -111.5557964, 35.2291009,
+    -111.5525778, 35.2319754,
+    -111.5506895, 35.2324311,
+    -111.5485008, 35.2335178,
+    -111.5448101, 35.2358313,
+    -111.5447672, 35.2447692,
+    -111.5532215, 35.2460309,
+    -111.5556248, 35.2463464,
+    -111.5564831, 35.2461361,
+    -111.5624054, 35.2447692,
+    -111.5638216, 35.2447692,
+    -111.5649374, 35.2452949
+  ),
+  ncol = 2, byrow = TRUE
+)
 
-aoi <- st_transform(las_box, 4326)
-
+aoi <- st_sf(
+  id       = 1,
+  geometry = st_sfc(st_polygon(list(coords)), crs = 4326)
+)
 
 cat("AOI (WGS 84):\n")
 print(st_bbox(aoi))
@@ -121,10 +138,10 @@ process_chunk <- function(las) {
 
   # -- Canopy height model (pit-free) ---------------------------------
   chm <- lidR::rasterize_canopy(nlas, res = 0.5,
-    algorithm = lidR::pitfree(
-      thresholds = c(0, 10, 20),
-      max_edge   = c(0, 1.5)
-    ))
+                                algorithm = lidR::pitfree(
+                                  thresholds = c(0, 10, 20),
+                                  max_edge   = c(0, 1.5)
+                                ))
 
   # -- Individual tree detection (local maximum filter) ---------------
   ttops <- lidR::locate_trees(chm, algorithm = lidR::lmf(ws = 2.5))

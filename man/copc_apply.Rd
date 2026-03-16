@@ -12,6 +12,8 @@ copc_apply(
   chunk_size = 200,
   chunk_buffer = 15,
   chunk_alignment = c(0, 0),
+  max_points_per_chunk = NULL,
+  min_split_size = 25,
   select = "*",
   filter = "",
   packages = NULL,
@@ -45,6 +47,20 @@ for spatial context.  Points in the buffer are available to
 \item{chunk_alignment}{Numeric length-2 vector \code{c(x, y)} that
 shifts the grid origin for reproducible tiling.
 Default \code{c(0, 0)}.}
+
+\item{max_points_per_chunk}{Numeric or \code{NULL}.  When set,
+after building the regular chunk grid each chunk is checked
+against the COPC octree to estimate its point count.  Chunks
+exceeding this threshold are recursively split (quadtree-style)
+into smaller sub-chunks until the estimate drops below the limit
+(or \code{min_split_size} is reached).  This implements the
+adaptive work-unit pattern: balance memory/complexity per chunk
+rather than using a fixed spatial grid.
+Default \code{NULL} (disabled -- use uniform spatial grid only).}
+
+\item{min_split_size}{Numeric.  Minimum side length (CRS units) for
+adaptive sub-chunking.  Below this threshold splitting stops even
+if \code{max_points_per_chunk} is exceeded.  Default \code{25}.}
 
 \item{select}{Character. Column selection string forwarded to
 \code{\link{read_copc}()}.  Default \code{"*"} (all columns).}
@@ -90,7 +106,8 @@ queries, converts to a \code{lidR::LAS} object, and applies a
 user-supplied function.
 }
 \details{
-This is the COPC-native equivalent of \code{lidR::catalog_apply()}.
+This is the COPC-native equivalent of \code{lidR::catalog_apply()}
+and the successor to \code{\link{copc_catalog_apply}()}.
 Unlike a traditional \code{LAScatalog} workflow that reads from local
 \code{.las}/\code{.laz} tiles, \code{copc_apply()} queries the COPC
 octree spatial index and streams only the needed data for each chunk

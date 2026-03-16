@@ -436,23 +436,23 @@ test_that("read_copc_catalog builds a catalog (bundled)", {
   )
 })
 
-test_that("catalog_apply processes each file (bundled)", {
+test_that("copc_catalog_apply processes each file (bundled)", {
   skip_if(skip_bundled, "bundled COPC file not found")
 
   ctg <- read_copc_catalog(copc_file, progress = FALSE)
-  results <- catalog_apply(ctg, function(x) nrow(x$data), progress = FALSE)
+  results <- copc_catalog_apply(ctg, function(x) nrow(x$data), progress = FALSE)
 
   expect_type(results, "list")
   expect_length(results, 1)
   expect_gt(results[[1]], 0)
 })
 
-test_that("catalog_apply with chunk_size tiles the file (bundled)", {
+test_that("copc_catalog_apply with chunk_size tiles the file (bundled)", {
   skip_if(skip_bundled, "bundled COPC file not found")
 
   ctg <- read_copc_catalog(copc_file, chunk_size = 50,
                            chunk_buffer = 0, progress = FALSE)
-  results <- catalog_apply(ctg, function(x) {
+  results <- copc_catalog_apply(ctg, function(x) {
     data.frame(n = nrow(x$data), z_mean = mean(x$data$Z))
   }, progress = FALSE)
 
@@ -463,12 +463,12 @@ test_that("catalog_apply with chunk_size tiles the file (bundled)", {
   expect_gt(sum(metrics$n), 0)
 })
 
-test_that("catalog_apply cores parameter accepts integer (bundled)", {
+test_that("copc_catalog_apply cores parameter accepts integer (bundled)", {
   skip_if(skip_bundled, "bundled COPC file not found")
 
   ctg <- read_copc_catalog(copc_file, chunk_size = 100, progress = FALSE)
   # cores = 1L should work identically to default
-  results <- catalog_apply(ctg, function(x) nrow(x$data),
+  results <- copc_catalog_apply(ctg, function(x) nrow(x$data),
                            cores = 1L, progress = FALSE)
   expect_type(results, "list")
   expect_gte(length(results), 1)

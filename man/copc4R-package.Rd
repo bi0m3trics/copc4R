@@ -6,7 +6,7 @@
 \alias{copc4R-package}
 \title{copc4R: Read COPC Point Clouds from Local Files and HTTP URLs}
 \description{
-Reads Cloud Optimized Point Cloud (COPC, .copc.laz) files from local disk or HTTP endpoints using range reads. Returns point data as 'data.table' with 'rlas'-compatible header conventions. Optionally converts to 'lidR' LAS objects when 'lidR' is installed. Uses 'LASzip' for LAZ decompression. Supports spatial bounding box, polygon area-of-interest (AOI), corridor, Z-range, and attribute filters via the COPC octree hierarchy. Provides multi-resolution level-of-detail (LOD) sampling, deterministic tiling, streaming iterators, and 'lidR' catalog integration.
+Reads and writes Cloud Optimized Point Cloud (COPC, .copc.laz) files from local disk or HTTP(S) endpoints using range reads. Returns point data as 'data.table' with 'rlas'-compatible header conventions. Optionally converts to 'lidR' LAS objects when 'lidR' is installed. Uses 'LASzip' for LAZ decompression. Supports spatial bounding box, polygon area-of-interest (AOI), corridor, Z-range, and attribute filters via the COPC octree hierarchy. Provides multi-resolution level-of-detail (LOD) sampling, deterministic tiling, streaming iterators, 'lidR' catalog integration, STAC endpoint discovery (including the USGS 3DEP collection via Microsoft Planetary Computer), Virtual Point Cloud (VPC) read/write for QGIS/PDAL interoperability, and octree-based adaptive chunking for balanced work-unit processing.
 }
 \seealso{
 Useful links:

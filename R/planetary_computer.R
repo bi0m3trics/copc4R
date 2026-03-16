@@ -3,7 +3,7 @@
 # Search and download Cloud Optimized Point Clouds (COPC) from
 # Microsoft's Planetary Computer STAC API for the USGS 3DEP collection.
 # Only the points within the user's AOI are fetched (via COPC range reads)
-# and written to local .laz files -- no full-tile downloads.
+# and written to local .copc.laz files -- no full-tile downloads.
 #
 # Data info : https://planetarycomputer.microsoft.com/dataset/3dep-lidar-copc
 # STAC API  : https://planetarycomputer.microsoft.com/api/stac/v1
@@ -18,7 +18,7 @@ if (!exists("%||%")) `%||%` <- function(a, b) if (is.null(a)) b else a
 #' \href{https://planetarycomputer.microsoft.com/dataset/3dep-lidar-copc}{Microsoft Planetary Computer STAC API}
 #' for USGS 3DEP LiDAR COPC tiles that intersect a user-supplied \code{sf}
 #' geometry, reads \emph{only the points inside the AOI} from each tile
-#' via COPC range reads, and writes the clipped results as \code{.laz}
+#' via COPC range reads, and writes the clipped results as \code{.copc.laz}
 #' files in a user-specified directory.
 #'
 #' @details
@@ -35,15 +35,15 @@ if (!exists("%||%")) `%||%` <- function(a, b) if (is.null(a)) b else a
 #'     octree nodes that overlap the AOI bounding box are fetched via
 #'     HTTP range reads, and points are then clipped to the polygon
 #'     boundary -- so only the data you need is transferred.
-#'   \item The clipped points are written to a local \code{.laz} file
-#'     via \code{lidR::writeLAS()}.
+#'   \item The clipped points are written to a local \code{.copc.laz}
+#'     file via \code{\link{write_copc}()}.
 #' }
 #'
 #' @param aoi An \code{sf} or \code{sfc} object (polygon / multipolygon).
 #'   The geometry is unioned, converted to a single polygon/multipolygon,
 #'   and sent as GeoJSON to the STAC \code{intersects} parameter.
-#' @param dest_dir Character. Directory where \code{.laz} files will
-#'   be saved.  Created recursively if it does not exist.
+#' @param dest_dir Character. Directory where \code{.copc.laz} files
+#'   will be saved.  Created recursively if it does not exist.
 #' @param select Character. Column selection string passed to
 #'   \code{\link{read_copc}()} (default \code{"*"} = all attributes).
 #'   See \code{\link{read_copc}} for the full syntax.
@@ -57,8 +57,8 @@ if (!exists("%||%")) `%||%` <- function(a, b) if (is.null(a)) b else a
 #'   already exist locally. Default \code{FALSE}.
 #' @param merge Logical.  If \code{TRUE} (the default), all tiles are
 #'   merged into a single output file named
-#'   \code{3dep_copc_merge.laz}.  If \code{FALSE}, one file per tile
-#'   is written (named by STAC item ID).
+#'   \code{3dep_copc_merge.copc.laz}.  If \code{FALSE}, one file per
+#'   tile is written (named by STAC item ID).
 #' @param progress Logical. Show progress during range reads
 #'   (default \code{TRUE}).
 #' @param verbose Logical. Print informational messages during the
@@ -69,14 +69,14 @@ if (!exists("%||%")) `%||%` <- function(a, b) if (is.null(a)) b else a
 #'   \describe{
 #'     \item{item_id}{STAC item identifier(s) -- comma-separated when
 #'       \code{merge = TRUE}.}
-#'     \item{file}{Full local path to the written \code{.laz} file.}
+#'     \item{file}{Full local path to the written \code{.copc.laz} file.}
 #'     \item{n_points}{Number of points in the file.}
 #'     \item{written}{Logical: \code{TRUE} if the file was written in
 #'       this call.}
 #'   }
 #'
 #' @examples
-#' \dontrun{
+#' \donttest{
 #' library(sf)
 #' library(copc4R)
 #'
@@ -128,7 +128,7 @@ download_3dep_copc <- function(aoi,
     stop("Package 'jsonlite' is required. Install with: install.packages('jsonlite')",
          call. = FALSE)
   if (!requireNamespace("lidR", quietly = TRUE))
-    stop("Package 'lidR' is required to write .laz files. ",
+    stop("Package 'lidR' is required (for as_las() conversion). ",
          "Install with: install.packages('lidR')",
          call. = FALSE)
 
@@ -313,13 +313,13 @@ download_3dep_copc <- function(aoi,
       item_ids <- c(item_ids, item_id)
     } else {
       # Write one file per tile
-      local_name <- paste0(item_id, ".laz")
+      local_name <- paste0(item_id, ".copc.laz")
       local_path <- file.path(dest_dir, local_name)
       skip <- file.exists(local_path) && !overwrite
       if (skip) {
         if (verbose) message("  File exists \u2014 skipping write.")
       } else {
-        lidR::writeLAS(las, local_path)
+        write_copc(las, local_path, progress = FALSE)
         if (verbose) message("  Wrote ", local_path)
       }
       all_las[[length(all_las) + 1L]] <- data.frame(
@@ -345,12 +345,12 @@ download_3dep_copc <- function(aoi,
 
     # Merge LAS objects
     merged <- do.call(rbind, all_las)
-    local_path <- file.path(dest_dir, "3dep_copc_merge.laz")
+    local_path <- file.path(dest_dir, "3dep_copc_merge.copc.laz")
     skip <- file.exists(local_path) && !overwrite
     if (skip) {
       if (verbose) message("Merged file exists \u2014 skipping write.")
     } else {
-      lidR::writeLAS(merged, local_path)
+      write_copc(merged, local_path, progress = FALSE)
       if (verbose)
         message(sprintf("Wrote %s points to %s",
                         format(lidR::npoints(merged), big.mark = ","),

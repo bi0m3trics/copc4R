@@ -22,8 +22,8 @@ download_3dep_copc(
 The geometry is unioned, converted to a single polygon/multipolygon,
 and sent as GeoJSON to the STAC \code{intersects} parameter.}
 
-\item{dest_dir}{Character. Directory where \code{.laz} files will
-be saved.  Created recursively if it does not exist.}
+\item{dest_dir}{Character. Directory where \code{.copc.laz} files
+will be saved.  Created recursively if it does not exist.}
 
 \item{select}{Character. Column selection string passed to
 \code{\link{read_copc}()} (default \code{"*"} = all attributes).
@@ -43,8 +43,8 @@ already exist locally. Default \code{FALSE}.}
 
 \item{merge}{Logical.  If \code{TRUE} (the default), all tiles are
 merged into a single output file named
-\code{3dep_copc_merge.laz}.  If \code{FALSE}, one file per tile
-is written (named by STAC item ID).}
+\code{3dep_copc_merge.copc.laz}.  If \code{FALSE}, one file per
+tile is written (named by STAC item ID).}
 
 \item{progress}{Logical. Show progress during range reads
 (default \code{TRUE}).}
@@ -58,7 +58,7 @@ and the following columns:
 \describe{
 \item{item_id}{STAC item identifier(s) -- comma-separated when
 \code{merge = TRUE}.}
-\item{file}{Full local path to the written \code{.laz} file.}
+\item{file}{Full local path to the written \code{.copc.laz} file.}
 \item{n_points}{Number of points in the file.}
 \item{written}{Logical: \code{TRUE} if the file was written in
 this call.}
@@ -69,7 +69,7 @@ Queries the
 \href{https://planetarycomputer.microsoft.com/dataset/3dep-lidar-copc}{Microsoft Planetary Computer STAC API}
 for USGS 3DEP LiDAR COPC tiles that intersect a user-supplied \code{sf}
 geometry, reads \emph{only the points inside the AOI} from each tile
-via COPC range reads, and writes the clipped results as \code{.laz}
+via COPC range reads, and writes the clipped results as \code{.copc.laz}
 files in a user-specified directory.
 }
 \details{
@@ -86,8 +86,8 @@ CRS (read from the COPC header) and passed to
 octree nodes that overlap the AOI bounding box are fetched via
 HTTP range reads, and points are then clipped to the polygon
 boundary -- so only the data you need is transferred.
-\item The clipped points are written to a local \code{.laz} file
-via \code{lidR::writeLAS()}.
+\item The clipped points are written to a local \code{.copc.laz}
+file via \code{\link{write_copc}()}.
 }
 }
 \examples{

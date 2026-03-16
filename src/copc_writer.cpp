@@ -254,10 +254,11 @@ void cpp_write_copc(std::string filename,
         Rcpp::stop("LASzip setup failed: %s",
                    laszip.get_error() ? laszip.get_error() : "unknown");
     }
-    // Force v4 of POINT14 layered compression (setup() requests v2 which
-    // maps to max(3,2)=3; we want v4 for better compatibility)
-    if (!laszip.request_version(4)) {
-        Rcpp::stop("LASzip request_version(4) failed: %s",
+    // Request v2 which clamps POINT14/RGB14/etc. to max(3,2)=3 — the
+    // standard version used by PDAL's COPC writer and supported by all
+    // LASzip builds (v4 requires LASzip ≥ 3.5 which rlas/lidR may lack).
+    if (!laszip.request_version(2)) {
+        Rcpp::stop("LASzip request_version(2) failed: %s",
                    laszip.get_error() ? laszip.get_error() : "unknown");
     }
     // chunk_size = 0 leaves the internal default at U32_MAX, which allows
@@ -287,6 +288,7 @@ void cpp_write_copc(std::string filename,
     }
 
     // ── 7. Compute VLR layout ───────────────────────────────────────
+    // Order: COPC info → WKT CRS → LASzip (matching PDAL's output order)
     uint32_t num_vlrs = 2;  // COPC info + LASzip
     uint32_t vlr_bytes = (54 + 160) + (54 + (uint32_t)lz_vlr_sz);
     if (!wkt.empty()) {
@@ -317,7 +319,7 @@ void cpp_write_copc(std::string filename,
     hdr.header_size            = 375;
     hdr.offset_to_point_data   = offset_to_pts;
     hdr.num_vlrs               = num_vlrs;
-    hdr.point_data_format      = point_format;
+    hdr.point_data_format      = point_format | 0x80;  // 0x80 = LAZ compressed
     hdr.point_data_record_length = point_record_length;
     hdr.legacy_point_count     = 0;
     hdr.x_scale = x_scale;  hdr.y_scale = y_scale;  hdr.z_scale = z_scale;
@@ -326,8 +328,14 @@ void cpp_write_copc(std::string filename,
     hdr.max_y = ymax; hdr.min_y = ymin;
     hdr.max_z = zmax; hdr.min_z = zmin;
     hdr.waveform_offset = 0;
-    hdr.evlr_start  = 0;  // patched later
-    hdr.num_evlrs   = 1;  // hierarchy EVLR
+    hdr.evlr_start  = 0;
+    hdr.num_evlrs   = 0;  // LASlib's EPToctree COPC handling has a
+                           // bug that silently drops all points when
+                           // it finds a COPC hierarchy EVLR.  We set
+                           // num_evlrs = 0 so LASlib skips EVLRs.
+                           // The hierarchy data is still written at
+                           // the end of the file and discoverable via
+                           // root_hier_offset in the COPC info VLR.
     hdr.point_count_14 = (uint64_t)n;
     std::memcpy(hdr.points_by_return_14, pts_by_ret, sizeof(pts_by_ret));
 
@@ -360,19 +368,7 @@ void cpp_write_copc(std::string filename,
         std::fwrite(buf, 160, 1, fp);
     }
 
-    // b) LASzip VLR
-    {
-        VLRHeader vh;
-        std::memset(&vh, 0, sizeof(vh));
-        std::memcpy(vh.user_id, "laszip encoded", 15);
-        vh.record_id     = 22204;
-        vh.record_length = (uint16_t)lz_vlr_sz;
-        std::strncpy(vh.description, "http://laszip.org", 31);
-        std::fwrite(&vh, sizeof(vh), 1, fp);
-        std::fwrite(lz_vlr, lz_vlr_sz, 1, fp);
-    }
-
-    // c) CRS WKT VLR (optional)
+    // b) CRS WKT VLR (optional — written before LASzip to match PDAL order)
     if (!wkt.empty()) {
         uint16_t wkt_len = (uint16_t)(wkt.size() + 1);
         VLRHeader vh;
@@ -383,6 +379,18 @@ void cpp_write_copc(std::string filename,
         std::strncpy(vh.description, "OGC WKT", 31);
         std::fwrite(&vh, sizeof(vh), 1, fp);
         std::fwrite(wkt.c_str(), wkt_len, 1, fp);
+    }
+
+    // c) LASzip VLR (must be last — some readers scan VLRs sequentially)
+    {
+        VLRHeader vh;
+        std::memset(&vh, 0, sizeof(vh));
+        std::memcpy(vh.user_id, "laszip encoded", 15);
+        vh.record_id     = 22204;
+        vh.record_length = (uint16_t)lz_vlr_sz;
+        std::strncpy(vh.description, "http://laszip.org", 31);
+        std::fwrite(&vh, sizeof(vh), 1, fp);
+        std::fwrite(lz_vlr, lz_vlr_sz, 1, fp);
     }
 
     // Verify offset
@@ -535,7 +543,6 @@ void cpp_write_copc(std::string filename,
     file_stream = nullptr;
 
     // ── 11. Write hierarchy EVLR ────────────────────────────────────
-    I64 evlr_pos = ftell_las(fp);
 
     EVLRHeader ev;
     std::memset(&ev, 0, sizeof(ev));
@@ -559,11 +566,7 @@ void cpp_write_copc(std::string filename,
 
     int64_t hier_data_size = (int64_t)(hierarchy.size() * 32);
 
-    // ── 12. Patch header: EVLR start ────────────────────────────────
-    fseek_las(fp, 235, SEEK_SET);
-    std::fwrite(&evlr_pos, 8, 1, fp);
-
-    // ── 13. Patch COPC info VLR: root_hier_offset + root_hier_size ──
+    // ── 12. Patch COPC info VLR: root_hier_offset + root_hier_size ──
     fseek_las(fp, copc_info_data_pos + 40, SEEK_SET);
     std::fwrite(&hier_data_pos, 8, 1, fp);
     std::fwrite(&hier_data_size, 8, 1, fp);
