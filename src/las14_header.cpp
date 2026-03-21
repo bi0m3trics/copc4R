@@ -3,6 +3,12 @@
 #include "range_reader.h"
 #include <cstring>
 #include <stdexcept>
+#include <cstdio>
+
+namespace {
+// Configuration constants
+constexpr uint64_t MAX_EVLR_PAYLOAD = 64u * 1024u * 1024u;  // 64 MB EVLR size limit
+} // anonymous namespace
 
 namespace copc4r {
 
@@ -20,9 +26,21 @@ LASHeader read_las_header(RangeReader& reader) {
         throw std::runtime_error("Not a LAS file (bad signature)");
     if (h.pub.version_major != 1 || h.pub.version_minor < 4)
         throw std::runtime_error("COPC requires LAS >= 1.4");
+    
+    // Validate header size
+    if (h.pub.header_size < 375) {
+        throw std::runtime_error("Invalid header_size " + 
+                                 std::to_string(h.pub.header_size) + 
+                                 " (must be >= 375 for LAS 1.4)");
+    }
+    if (h.pub.header_size > 10000) {
+        throw std::runtime_error("Suspicious header_size " + 
+                                 std::to_string(h.pub.header_size) + 
+                                 " (possibly corrupted file)");
+    }
 
     // ── 2. Read VLRs (located right after public header) ──────────────
-    uint64_t cursor = h.pub.header_size; // typically 375
+    uint64_t cursor = h.pub.header_size;
     for (uint32_t i = 0; i < h.pub.num_vlrs; ++i) {
         auto vhdr_raw = reader.read(cursor, sizeof(VLRHeader));
         if (vhdr_raw.size() < sizeof(VLRHeader))
@@ -32,13 +50,18 @@ LASHeader read_las_header(RangeReader& reader) {
         std::memcpy(&vhdr, vhdr_raw.data(), sizeof(VLRHeader));
         cursor += sizeof(VLRHeader);
 
+        if (vhdr.reserved != 0x0000) {
+            std::fprintf(stderr, "Warning: VLR reserved field is non-zero (0x%04X) at offset %lld\n",
+                         (unsigned)vhdr.reserved, (long long)(cursor - sizeof(VLRHeader)));
+        }
+
         ParsedVLR vlr;
         vlr.reserved    = vhdr.reserved;
         vlr.user_id     = std::string(vhdr.user_id,
-                                      strnlen(vhdr.user_id, 16));
+                                      strnlen(vhdr.user_id, sizeof(vhdr.user_id)));
         vlr.record_id   = vhdr.record_id;
         vlr.description = std::string(vhdr.description,
-                                      strnlen(vhdr.description, 32));
+                                      strnlen(vhdr.description, sizeof(vhdr.description)));
         vlr.data        = reader.read(cursor, vhdr.record_length);
         cursor += vhdr.record_length;
 
@@ -56,18 +79,23 @@ LASHeader read_las_header(RangeReader& reader) {
             std::memcpy(&ehdr, ehdr_raw.data(), sizeof(EVLRHeader));
             ecursor += sizeof(EVLRHeader);
 
+            if (ehdr.reserved != 0x0000) {
+                std::fprintf(stderr, "Warning: EVLR reserved field is non-zero (0x%04X) at offset %lld\n",
+                             (unsigned)ehdr.reserved, (long long)(ecursor - sizeof(EVLRHeader)));
+            }
+
             ParsedVLR vlr;
             vlr.reserved   = ehdr.reserved;
             vlr.user_id    = std::string(ehdr.user_id,
-                                         strnlen(ehdr.user_id, 16));
+                                         strnlen(ehdr.user_id, sizeof(ehdr.user_id)));
             vlr.record_id  = ehdr.record_id;
             vlr.description = std::string(ehdr.description,
-                                          strnlen(ehdr.description, 32));
+                                          strnlen(ehdr.description, sizeof(ehdr.description)));
             // Only read EVLR payload up to 64 MB to avoid OOM on weird files
-            uint64_t safe_len = std::min(ehdr.record_length,
-                                         static_cast<uint64_t>(64 * 1024 * 1024));
+            uint64_t safe_len = std::min(ehdr.record_length, MAX_EVLR_PAYLOAD);
             vlr.data = reader.read(ecursor, safe_len);
-            ecursor += ehdr.record_length;
+            // Use safe_len for cursor advancement to prevent overflow from corrupted headers
+            ecursor += safe_len;
 
             h.evlrs.push_back(std::move(vlr));
         }
@@ -99,53 +127,26 @@ const ParsedVLR* find_vlr(const LASHeader& h,
 //   bytes 4-35:   name (char[32], null-terminated)
 //   bytes 36-39:  unused
 //   bytes 40-63:  no_data[3] (8 bytes each)
-//   bytes 64-79:  deprecated
-//   bytes 80-103: min[3]
-//   bytes 104-119: deprecated
-//   bytes 120-143: max[3]
-//   bytes 144-159: deprecated
-//   bytes 160-183: scale[3] (8 bytes each)
-//   bytes 184-207: -- wait, let me recount...
-// Actually per LAS spec the record is:
-//   2 + 1 + 1 + 32 + 4 + 24 + 16 + 24 + 16 + 24 + 16 + 24 + 8 = ...
-// No, the exact layout per ASPRS LAS 1.4 spec:
-//   reserved[2], data_type[1], options[1], name[32], unused[4],
-//   no_data[24], deprecated1[16], min[24], deprecated2[16],
-//   max[24], deprecated3[16], scale[24], offset[24], description[32]
-// = 2+1+1+32+4+24+16+24+16+24+16+24+24+32 = 240?
-// No -- let me use the standard 192 bytes:
-//   reserved[2], data_type[1], options[1], name[32], unused[4],
-//   no_data[3*8=24], deprecated1[3*8=24] -- no.
-// Per ASPRS LAS 1.4 R15 spec, the Extra Bytes Record is:
-//   reserved        2 bytes
-//   data_type       1 byte
-//   options         1 byte
-//   name           32 bytes
-//   unused          4 bytes
-//   no_data        24 bytes (3 doubles)
-//   deprecated1    16 bytes
-//   min            24 bytes
-//   deprecated2    16 bytes
-//   max            24 bytes
-//   deprecated3    16 bytes
-//   scale          24 bytes
-//   offset         24 bytes
-//   description    32 bytes
-// Total = 2+1+1+32+4+24+16+24+16+24+16+24+24+32 = 240
-// Wait that's >= 192. Let me just use 192 as commonly implemented.
-// Actually the correct structure (commonly used in practice) is 192 bytes:
-//   uint16_t reserved;      // 2
-//   uint8_t  data_type;     // 1
-//   uint8_t  options;       // 1
-//   char     name[32];      // 32
-//   uint8_t  unused[4];     // 4
-//   uint8_t  no_data[24];   // 24  (anytype[3])
-//   uint8_t  min[24];       // 24
-//   uint8_t  max[24];       // 24
-//   double   scale[3];      // 24
-//   double   offset[3];     // 24
-//   char     description[32]; // 32
-// Total = 2+1+1+32+4+24+24+24+24+24+32 = 192
+//   bytes 64-87:  min[3] (8 bytes each)
+//   bytes 88-111: max[3] (8 bytes each)
+//   bytes 112-135: scale[3] (8 bytes each)
+//   bytes 136-159: offset[3] (8 bytes each)
+//   bytes 160-191: description[32]
+//
+// Per ASPRS LAS 1.4 spec (and confirmed in LAStools lasattributer.hpp),
+// the Extra Bytes VLR structure is exactly 192 bytes with NO deprecated fields:
+//   uint16_t reserved;        // 2 bytes
+//   uint8_t  data_type;       // 1 byte
+//   uint8_t  options;         // 1 byte
+//   char     name[32];        // 32 bytes
+//   uint8_t  unused[4];       // 4 bytes
+//   uint8_t  no_data[24];     // 24 bytes (anytype[3])
+//   uint8_t  min[24];         // 24 bytes (anytype[3])
+//   uint8_t  max[24];         // 24 bytes (anytype[3])
+//   double   scale[3];        // 24 bytes
+//   double   offset[3];       // 24 bytes
+//   char     description[32]; // 32 bytes
+// Total = 2+1+1+32+4+24+24+24+24+24+32 = 192 bytes
 // ═══════════════════════════════════════════════════════════════════════
 
 // Byte sizes for data_type values
@@ -205,13 +206,13 @@ std::vector<ExtraBytesRecord> parse_extra_bytes_vlr(const LASHeader& h) {
         //   bit 3: has_scale
         //   bit 4: has_offset
         eb.has_no_data = (options & 0x01) != 0;
+        eb.has_min     = (options & 0x02) != 0;
+        eb.has_max     = (options & 0x04) != 0;
         eb.has_scale   = (options & 0x08) != 0;
         eb.has_offset  = (options & 0x10) != 0;
 
         eb.byte_size = eb_type_size(eb.data_type);
         if (eb.byte_size == 0 && eb.data_type == 0) {
-            // Undocumented: use the difference between actual and standard
-            // point size, divided by number of records... or skip
             continue;
         }
 

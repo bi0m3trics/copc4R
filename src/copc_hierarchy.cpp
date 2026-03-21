@@ -5,6 +5,8 @@
 #include <stdexcept>
 #include <queue>
 #include <algorithm>
+#include <cmath>
+#include <limits>
 
 namespace copc4r {
 
@@ -32,14 +34,26 @@ COPCInfo parse_copc_info(const LASHeader& header) {
 // ═══════════════════════════════════════════════════════════════════════
 // node_bounds  –  derive AABB from octree key + COPC center/halfsize
 //
-// The octree root node (level=0, x=0, y=0, z=0) has a cube of
-//   [center_x - halfsize, center_x + halfsize] × same for y,z.
-// Each level subdivides by 2 in each axis.  Node (l,x,y,z) at level l
-// has a cube side = 2*halfsize / 2^l.  Its min corner is:
-//   comp_min = center_comp - halfsize + x * side   (for x component)
+// Octree traversal: root at level=0, each level subdivides by 2 per axis.
+// Node (level,x,y,z) has side = 2*halfsize / 2^level
 // ═══════════════════════════════════════════════════════════════════════
 AABB node_bounds(const COPCInfo& info, const VoxelKey& key) {
-    double side = 2.0 * info.halfsize / (1 << key.level); // could overflow for huge levels
+    // Validate inputs to prevent NaN/Inf propagation
+    if (!std::isfinite(info.halfsize) || !std::isfinite(info.center_x) ||
+        !std::isfinite(info.center_y) || !std::isfinite(info.center_z)) {
+        throw std::runtime_error("COPC Info contains non-finite values");
+    }
+    if (info.halfsize <= 0.0) {
+        throw std::runtime_error("COPC Info halfsize must be positive");
+    }
+    if (key.level < 0 || key.level > 30) {
+        throw std::runtime_error("COPC octree level out of valid range [0,30]: " +
+                                 std::to_string(key.level));
+    }
+    
+    // Use ldexp for safe power-of-2 calculation (avoids bit-shift overflow)
+    double denominator = std::ldexp(1.0, key.level);  // 2^level
+    double side = 2.0 * info.halfsize / denominator;
     AABB b;
     b.xmin = info.center_x - info.halfsize + key.x * side;
     b.ymin = info.center_y - info.halfsize + key.y * side;
@@ -109,7 +123,6 @@ std::vector<NodeChunk> select_nodes(
 
             if (e.point_count == -1) {
                 // This entry points to a child hierarchy page
-                // Only follow if children could be within depth limit
                 page_queue.push({e.offset,
                                  static_cast<uint64_t>(e.byte_size)});
             } else {

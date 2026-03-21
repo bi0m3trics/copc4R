@@ -81,6 +81,10 @@ std::vector<uint8_t> HttpRangeReader::read(uint64_t off, uint64_t len) {
     buf.reserve(len);
 
     // Build Range header: "bytes=off-(off+len-1)"
+    // Check for overflow in range calculation
+    if (len > 0 && off > UINT64_MAX - (len - 1)) {
+        throw std::runtime_error("HTTP range calculation overflow");
+    }
     std::ostringstream range;
     range << off << "-" << (off + len - 1);
     std::string range_str = range.str();

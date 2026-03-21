@@ -1,21 +1,7 @@
 // laszip_decompress.cpp  –  Decompress LAZ chunks from memory using LASzip
 //
-// In COPC, each hierarchy-selected node stores a self-contained LAZ chunk.
-// The compression scheme is defined by the LASzip VLR in the LAS file
-// header (user_id="laszip encoded", record_id=22204).
-//
-// Strategy:
-//   1. Unpack the LASzip VLR to recover the num_items / LASitem array.
-//   2. Create a ByteStreamInArray over the compressed chunk bytes.
-//   3. Use LASreadPoint::setup(num_items, items, &laszip) then ::init()
-//      to start decompression.
-//   4. Read point by point; each read fills item buffers.
-//   5. Reassemble item buffers into a flat raw point record and decode.
-//
-// LASzip internal headers used:
-//   laszip.hpp          – LASzip class + LASitem
-//   lasreadpoint.hpp    – LASreadPoint decompressor
-//   bytestreamin_array.hpp – in-memory byte stream
+// Decodes COPC chunks compressed with LASzip's layered-chunked format.
+// Uses bundled LASzip library (laszip.hpp, lasreadpoint.hpp).
 
 #include "laszip_decompress.h"
 #include <cstring>
@@ -31,14 +17,10 @@
 namespace copc4r {
 
 // ═══════════════════════════════════════════════════════════════════════
-// decode_raw_point()  –  parse fields from a flat point record buffer
-// ═══════════════════════════════════════════════════════════════════════
 // decode_combo_point()  –  decode from LASzip's internal "combo" format
 //
-// LASzip internally converts POINT14 (PDRF 6/7/8) fields into a
-// "LAStempReadPoint10" combo struct that merges legacy POINT10 fields
-// with extended LAS 1.4 fields.  The output item buffer is TWICE the
-// item size, and the layout is:
+// LASzip uses a combo buffer (2x item size) for layered compression.
+// LAStempReadPoint10 layout (POINT14 fields):
 //
 //   Offset  Size  Field
 //   ──────  ────  ────────────────────────────────────────────────────
@@ -67,6 +49,7 @@ namespace copc4r {
 // ═══════════════════════════════════════════════════════════════════════
 DecodedPoint decode_combo_point(
     const uint8_t* combo_buf,
+    size_t combo_buf_size,
     const LASzip& laszip,
     uint8_t  point_format,
     double x_scale, double y_scale, double z_scale,
@@ -139,13 +122,26 @@ DecodedPoint decode_combo_point(
         for (U16 i = 0; i < laszip.num_items; i++) {
             if (laszip.items[i].type == LASitem::BYTE14 ||
                 laszip.items[i].type == LASitem::BYTE) {
+                // Validate buffer bounds before accessing
+                if (eb_offset >= combo_buf_size) {
+                    throw std::runtime_error("Extra bytes offset out of bounds");
+                }
                 const uint8_t* eb_ptr = combo_buf + eb_offset;
                 uint16_t copy_size = std::min(extra_bytes_size,
                     static_cast<uint16_t>(laszip.items[i].size));
+                // Ensure we don't read past buffer end
+                if (eb_offset + copy_size > combo_buf_size) {
+                    throw std::runtime_error("Extra bytes copy would exceed buffer");
+                }
                 p.extra_bytes.assign(eb_ptr, eb_ptr + copy_size);
                 break;
             }
-            eb_offset += 2 * laszip.items[i].size;
+            // Check for integer overflow before addition
+            U32 item_size = 2 * laszip.items[i].size;
+            if (eb_offset > UINT32_MAX - item_size) {
+                throw std::runtime_error("Extra bytes offset overflow");
+            }
+            eb_offset += item_size;
         }
     }
 
@@ -239,7 +235,7 @@ std::vector<DecodedPoint> decompress_chunk(
         }
 
         result.push_back(decode_combo_point(
-            raw_point.data(), laszip, point_format,
+            raw_point.data(), combo_size, laszip, point_format,
             x_scale, y_scale, z_scale,
             x_off, y_off, z_off,
             extra_bytes_size));

@@ -18,6 +18,25 @@
 
 #include <cstring>
 #include <cmath>
+
+namespace {
+// Configuration constants
+constexpr int    DEFAULT_POINTS_PER_LEAF = 10000;  // Target points per octree leaf
+constexpr int    MAX_OCTREE_DEPTH = 8;             // Maximum octree depth
+constexpr double MIN_HALFSIZE = 1e-6;              // Minimum bounding box halfsize
+constexpr double HALFSIZE_MARGIN = 1.001;          // Margin factor to prevent boundary issues
+constexpr double DEFAULT_SCALE_FACTOR = 0.001;     // Default coordinate scale (1mm)
+constexpr uint32_t MAX_VLR_SECTION_SIZE = 100u * 1024u * 1024u;  // 100 MB VLR sanity limit
+
+// LAS 1.4 spec constants
+constexpr double SCAN_ANGLE_QUANTUM = 0.006;       // Extended scan angle unit (degrees)
+constexpr size_t LAS_STRING_LENGTH = 31;           // Max usable string length (32 - null)
+
+// Spec-defined VLR identifiers
+constexpr char VLR_LASF_PROJECTION[] = "LASF_Projection";
+constexpr char VLR_LASZIP_ENCODED[] = "laszip encoded";
+constexpr char VLR_COPC[] = "copc";
+} // anonymous namespace
 #include <vector>
 #include <algorithm>
 #include <unordered_map>
@@ -169,12 +188,21 @@ void cpp_write_copc(std::string filename,
         default: point_record_length = 38; break;
     }
 
-    double x_scale  = hdr_dbl(header, "X scale factor", 0.001);
-    double y_scale  = hdr_dbl(header, "Y scale factor", 0.001);
-    double z_scale  = hdr_dbl(header, "Z scale factor", 0.001);
+    double x_scale  = hdr_dbl(header, "X scale factor", DEFAULT_SCALE_FACTOR);
+    double y_scale  = hdr_dbl(header, "Y scale factor", DEFAULT_SCALE_FACTOR);
+    double z_scale  = hdr_dbl(header, "Z scale factor", DEFAULT_SCALE_FACTOR);
     double x_offset = hdr_dbl(header, "X offset", 0.0);
     double y_offset = hdr_dbl(header, "Y offset", 0.0);
     double z_offset = hdr_dbl(header, "Z offset", 0.0);
+    
+    // Validate scale factors and offsets
+    if (!std::isfinite(x_scale) || !std::isfinite(y_scale) || !std::isfinite(z_scale) ||
+        x_scale == 0.0 || y_scale == 0.0 || z_scale == 0.0) {
+        Rcpp::stop("Scale factors must be finite and non-zero");
+    }
+    if (!std::isfinite(x_offset) || !std::isfinite(y_offset) || !std::isfinite(z_offset)) {
+        Rcpp::stop("Offset values must be finite");
+    }
 
     // ── 3. Compute bounds ───────────────────────────────────────────
     double xmin = X[0], xmax = X[0];
@@ -192,6 +220,12 @@ void cpp_write_copc(std::string filename,
         if (vGpstime[i] < tmin) tmin = vGpstime[i];
         if (vGpstime[i] > tmax) tmax = vGpstime[i];
     }
+    
+    if (!std::isfinite(xmin) || !std::isfinite(xmax) || xmin > xmax ||
+        !std::isfinite(ymin) || !std::isfinite(ymax) || ymin > ymax ||
+        !std::isfinite(zmin) || !std::isfinite(zmax) || zmin > zmax) {
+        Rcpp::stop("Invalid coordinate bounds computed (NaN/Inf or min > max)");
+    }
 
     uint64_t pts_by_ret[15] = {0};
     for (int i = 0; i < n; i++) {
@@ -204,20 +238,21 @@ void cpp_write_copc(std::string filename,
     double cy = (ymin + ymax) / 2.0;
     double cz = (zmin + zmax) / 2.0;
     double halfsize = std::max({xmax - xmin, ymax - ymin, zmax - zmin}) / 2.0;
-    if (halfsize < 1e-6) halfsize = 1.0;
-    halfsize *= 1.001;  // small margin to prevent boundary issues
+    if (halfsize < MIN_HALFSIZE) halfsize = 1.0;
+    halfsize *= HALFSIZE_MARGIN;
 
-    // Auto-compute depth (target ~10 000 points per leaf)
+    // Auto-compute depth (~10k points per leaf)
     int max_depth;
     if (max_depth_input >= 0) {
         max_depth = max_depth_input;
     } else {
-        if (n <= 10000) {
+        if (n <= DEFAULT_POINTS_PER_LEAF) {
             max_depth = 0;
         } else {
-            max_depth = (int)std::ceil(std::log((double)n / 10000.0) / std::log(8.0));
+            max_depth = (int)std::ceil(
+                std::log((double)n / DEFAULT_POINTS_PER_LEAF) / std::log(8.0));
         }
-        max_depth = std::min(max_depth, 8);
+        max_depth = std::min(max_depth, MAX_OCTREE_DEPTH);
     }
 
     double spacing = 2.0 * halfsize;
@@ -254,9 +289,7 @@ void cpp_write_copc(std::string filename,
         Rcpp::stop("LASzip setup failed: %s",
                    laszip.get_error() ? laszip.get_error() : "unknown");
     }
-    // Request v2 which clamps POINT14/RGB14/etc. to max(3,2)=3 — the
-    // standard version used by PDAL's COPC writer and supported by all
-    // LASzip builds (v4 requires LASzip ≥ 3.5 which rlas/lidR may lack).
+    // Request version 2 for compatibility
     if (!laszip.request_version(2)) {
         Rcpp::stop("LASzip request_version(2) failed: %s",
                    laszip.get_error() ? laszip.get_error() : "unknown");
@@ -278,10 +311,14 @@ void cpp_write_copc(std::string filename,
         Rcpp::CharacterVector vlr_names;
         if (vlrs.hasAttribute("names"))
             vlr_names = vlrs.attr("names");
-        for (int i = 0; i < vlrs.size(); i++) {
+        for (size_t i = 0; i < (size_t)vlrs.size(); i++) {
             Rcpp::List v = Rcpp::as<Rcpp::List>(vlrs[i]);
             if (v.containsElementNamed("WKT OGC COORDINATE SYSTEM")) {
                 wkt = Rcpp::as<std::string>(v["WKT OGC COORDINATE SYSTEM"]);
+                if (wkt.size() >= UINT16_MAX - 1) {
+                    Rcpp::stop("WKT string too large (%zu bytes, max %d)", 
+                               wkt.size(), UINT16_MAX - 2);
+                }
                 break;
             }
         }
@@ -293,7 +330,16 @@ void cpp_write_copc(std::string filename,
     uint32_t vlr_bytes = (54 + 160) + (54 + (uint32_t)lz_vlr_sz);
     if (!wkt.empty()) {
         num_vlrs++;
-        vlr_bytes += 54 + (uint32_t)wkt.size() + 1;
+        // Check for uint32_t overflow when adding WKT VLR
+        uint32_t wkt_vlr_size = 54 + (uint32_t)wkt.size() + 1;
+        if (vlr_bytes > UINT32_MAX - wkt_vlr_size) {
+            Rcpp::stop("VLR section too large (overflow)");
+        }
+        vlr_bytes += wkt_vlr_size;
+    }
+    // Validate total VLR size
+    if (vlr_bytes > MAX_VLR_SECTION_SIZE) {
+        Rcpp::stop("VLR section suspiciously large: %u bytes", vlr_bytes);
     }
     uint32_t offset_to_pts = 375 + vlr_bytes;
 
@@ -308,8 +354,8 @@ void cpp_write_copc(std::string filename,
     hdr.global_encoding  = 0x11;  // GPS time type (bit 0) + WKT (bit 4)
     hdr.version_major    = 1;
     hdr.version_minor    = 4;
-    std::strncpy(hdr.system_identifier, "copc4R", 31);
-    std::strncpy(hdr.generating_software, "copc4R (R)", 31);
+    std::strncpy(hdr.system_identifier, "copc4R", LAS_STRING_LENGTH);
+    std::strncpy(hdr.generating_software, "copc4R (R)", LAS_STRING_LENGTH);
     {
         std::time_t now = std::time(nullptr);
         std::tm* t = std::localtime(&now);
@@ -328,14 +374,8 @@ void cpp_write_copc(std::string filename,
     hdr.max_y = ymax; hdr.min_y = ymin;
     hdr.max_z = zmax; hdr.min_z = zmin;
     hdr.waveform_offset = 0;
-    hdr.evlr_start  = 0;
-    hdr.num_evlrs   = 0;  // LASlib's EPToctree COPC handling has a
-                           // bug that silently drops all points when
-                           // it finds a COPC hierarchy EVLR.  We set
-                           // num_evlrs = 0 so LASlib skips EVLRs.
-                           // The hierarchy data is still written at
-                           // the end of the file and discoverable via
-                           // root_hier_offset in the COPC info VLR.
+    hdr.evlr_start  = 0;  // Patched later after EVLR is written (§ 13)
+    hdr.num_evlrs   = 0;  // Patched later after EVLR is written (§ 13)
     hdr.point_count_14 = (uint64_t)n;
     std::memcpy(hdr.points_by_return_14, pts_by_ret, sizeof(pts_by_ret));
 
@@ -370,13 +410,16 @@ void cpp_write_copc(std::string filename,
 
     // b) CRS WKT VLR (optional — written before LASzip to match PDAL order)
     if (!wkt.empty()) {
+        if (wkt.size() >= UINT16_MAX - 1) {
+            Rcpp::stop("WKT string exceeds uint16_t limit");
+        }
         uint16_t wkt_len = (uint16_t)(wkt.size() + 1);
         VLRHeader vh;
         std::memset(&vh, 0, sizeof(vh));
-        std::memcpy(vh.user_id, "LASF_Projection", 15);
+        std::memcpy(vh.user_id, VLR_LASF_PROJECTION, 15);
         vh.record_id     = 2112;
         vh.record_length = wkt_len;
-        std::strncpy(vh.description, "OGC WKT", 31);
+        std::strncpy(vh.description, "OGC WKT", LAS_STRING_LENGTH);
         std::fwrite(&vh, sizeof(vh), 1, fp);
         std::fwrite(wkt.c_str(), wkt_len, 1, fp);
     }
@@ -385,7 +428,7 @@ void cpp_write_copc(std::string filename,
     {
         VLRHeader vh;
         std::memset(&vh, 0, sizeof(vh));
-        std::memcpy(vh.user_id, "laszip encoded", 15);
+        std::memcpy(vh.user_id, VLR_LASZIP_ENCODED, 15);
         vh.record_id     = 22204;
         vh.record_length = (uint16_t)lz_vlr_sz;
         std::strncpy(vh.description, "http://laszip.org", 31);
@@ -479,15 +522,13 @@ void cpp_write_copc(std::string filename,
                                   ((U8)(vSynthetic[idx] & 1) << 5) |
                                   ((U8)(vKeypoint[idx]  & 1) << 6) |
                                   ((U8)(vWithheld[idx]  & 1) << 7);
-            // ScanAngleRank is in degrees; legacy rank is I8 degrees
             pt->scan_angle_rank = (I8)std::round(vScanAngle[idx]);
             pt->user_data       = (U8)vUserData[idx];
             pt->point_source_ID = (U16)vPointSourceID[idx];
 
             // Extended LAS 1.4 fields
-            // Scan angle: ScanAngleRank (degrees) → raw I16 = deg / 0.006
             pt->extended_scan_angle  =
-                (I16)std::round(vScanAngle[idx] / 0.006);
+                (I16)std::round(vScanAngle[idx] / SCAN_ANGLE_QUANTUM);
             pt->extended_point_type  = 1;  // must be 1 for POINT14 wire format
             pt->extended_scanner_channel = (U8)(vScannerChannel[idx] & 0x03);
             pt->extended_classification_flags =
@@ -570,6 +611,21 @@ void cpp_write_copc(std::string filename,
     fseek_las(fp, copc_info_data_pos + 40, SEEK_SET);
     std::fwrite(&hier_data_pos, 8, 1, fp);
     std::fwrite(&hier_data_size, 8, 1, fp);
+
+    // ── 13. Update header EVLR metadata (LAS 1.4 spec § 4.2.5) ──────
+    // The hierarchy EVLR was written starting at hier_data_pos - 60.
+    // Per spec, evlr_start must point to the first EVLR header offset,
+    // and num_evlrs must reflect the actual count written to the file.
+    uint64_t evlr_start_offset = (uint64_t)(hier_data_pos - 60);
+    uint32_t num_evlrs_written = 1;
+
+    // evlr_start is at byte 235 in LAS 1.4 header (uint64_t)
+    fseek_las(fp, 235, SEEK_SET);
+    std::fwrite(&evlr_start_offset, 8, 1, fp);
+
+    // num_evlrs is at byte 243 in LAS 1.4 header (uint32_t)
+    fseek_las(fp, 243, SEEK_SET);
+    std::fwrite(&num_evlrs_written, 4, 1, fp);
 
     std::fclose(fp);
 

@@ -114,6 +114,8 @@ struct ExtraBytesRecord {
     bool        has_scale;
     bool        has_offset;
     bool        has_no_data;
+    bool        has_min;
+    bool        has_max;
     double      scale;       // scale factor (applied if has_scale)
     double      offset;      // offset (applied if has_offset)
     double      no_data;     // no_data sentinel

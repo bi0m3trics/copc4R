@@ -99,6 +99,10 @@ static Rcpp::List header_to_rlas_list(const copc4r::LASHeader& h) {
     out["Max Z"] = p.max_z;
     out["Min Z"] = p.min_z;
 
+    // LAS 1.4: EVLR section metadata (§ 4.2.5)
+    out["Start of EVLR"] = static_cast<double>(p.evlr_start);
+    out["Number of EVLRs"] = static_cast<int>(p.num_evlrs);
+
     // ── VLRs in rlas format ───────────────────────────────────────────
     // rlas VLR format: reserved, user ID, record ID, length after header,
     // description, and potentially parsed content (e.g. WKT string).
